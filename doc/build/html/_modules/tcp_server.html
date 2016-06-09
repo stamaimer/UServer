@@ -1,0 +1,1072 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>tcp_server &mdash; UServer 0.0.1 documentation</title>
+    
+    <link rel="stylesheet" href="../_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../',
+        VERSION:     '0.0.1',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../_static/jquery.js"></script>
+    <script type="text/javascript" src="../_static/underscore.js"></script>
+    <script type="text/javascript" src="../_static/doctools.js"></script>
+    <link rel="top" title="UServer 0.0.1 documentation" href="../index.html" />
+    <link rel="up" title="Module code" href="index.html" />
+   
+  <link rel="stylesheet" href="../_static/custom.css" type="text/css" />
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9" />
+
+  </head>
+  <body role="document">
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <h1>Source code for tcp_server</h1><div class="highlight"><pre>
+<span class="c"># -*- coding: utf-8 -*-</span>
+
+<span class="sd">&quot;&quot;&quot;tcp_server</span>
+
+<span class="sd">这个程序创建一个TCP服务器,监听`9009`端口.设备发起链接请求视为上线,程序针对每个链接新建一个协程,用于转发用户命令,监控设别状态,处理设备上报信息.</span>
+
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">import</span> <span class="nn">re</span>
+<span class="kn">import</span> <span class="nn">sys</span>
+<span class="kn">import</span> <span class="nn">ast</span>
+<span class="kn">import</span> <span class="nn">json</span>
+<span class="kn">import</span> <span class="nn">struct</span>
+
+<span class="kn">import</span> <span class="nn">gevent</span>
+
+<span class="kn">from</span> <span class="nn">binascii</span> <span class="kn">import</span> <span class="n">hexlify</span>
+<span class="kn">from</span> <span class="nn">datetime</span> <span class="kn">import</span> <span class="n">datetime</span>
+
+<span class="kn">from</span> <span class="nn">gevent.server</span> <span class="kn">import</span> <span class="n">StreamServer</span>
+<span class="kn">from</span> <span class="nn">gevent</span> <span class="kn">import</span> <span class="n">socket</span>
+
+<span class="n">sys</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;../&quot;</span><span class="p">)</span>
+
+<span class="kn">from</span> <span class="nn">userver</span> <span class="kn">import</span> <span class="o">*</span>
+
+<span class="n">socket</span><span class="o">.</span><span class="n">setdefaulttimeout</span><span class="p">(</span><span class="mi">5</span><span class="p">)</span>
+
+<span class="n">greenlets</span> <span class="o">=</span> <span class="p">{}</span>
+<span class="sd">&quot;&quot;&quot;list: 全局变量`greenlets`</span>
+
+<span class="sd">存储设备和设备对应的链接,用来分辨是否是新设备</span>
+
+<span class="sd">&quot;&quot;&quot;</span>
+
+
+<div class="viewcode-block" id="translate"><a class="viewcode-back" href="../tcp_server.html#tcp_server.translate">[docs]</a><span class="k">def</span> <span class="nf">translate</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">flag</span><span class="o">=</span><span class="s">&quot;server&quot;</span><span class="p">):</span>
+
+    <span class="sd">&quot;&quot;&quot;把一个十六进制字符串以两位为整体进行切割,同时把切割结果转换成为十进制整数</span>
+
+<span class="sd">    :param data: 十六进制字符串</span>
+<span class="sd">    :param flag: 由于程序产生字符串,而设备发送二进制串,需要使用标志区分数据来源,当数据来自设备,需要先使用`binascii.hexlify`进行格式转换.取值范围:{&quot;server&quot;(默认值), &quot;client&quot;}</span>
+<span class="sd">    :return: 返回一个整数列表</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">if</span> <span class="n">flag</span> <span class="o">==</span> <span class="s">&quot;client&quot;</span><span class="p">:</span>
+
+        <span class="n">data</span> <span class="o">=</span> <span class="n">hexlify</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+
+    <span class="n">tmp</span> <span class="o">=</span> <span class="p">[]</span>
+
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">xrange</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">data</span><span class="p">)</span> <span class="o">/</span> <span class="mi">2</span><span class="p">):</span>
+
+        <span class="n">tmp</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="nb">int</span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="n">i</span> <span class="o">*</span> <span class="mi">2</span><span class="p">:</span> <span class="n">i</span> <span class="o">*</span> <span class="mi">2</span> <span class="o">+</span> <span class="mi">2</span><span class="p">],</span> <span class="mi">16</span><span class="p">))</span>
+
+    <span class="k">return</span> <span class="n">tmp</span></div>
+
+
+<div class="viewcode-block" id="get_checksum"><a class="viewcode-back" href="../tcp_server.html#tcp_server.get_checksum">[docs]</a><span class="k">def</span> <span class="nf">get_checksum</span><span class="p">(</span><span class="n">data</span><span class="p">):</span>
+
+    <span class="sd">&quot;&quot;&quot;检验设备响应数据的校验和</span>
+
+<span class="sd">    首先调用`translate`函数获得响应数据的整数列表表示,然后对这个列表的除了最后一个元素之外所有元素求和,求和结果与`0xff`做位与操作,所得结果即为校验和,最后与整数列表的末尾元素比较,一致返回`True`,否则返回`False`</span>
+
+<span class="sd">    :param data: 设备响应数据(二进制串)</span>
+<span class="sd">    :return: 如果计算结果与设备上报的校验和一致返回`True`,否则返回`False`</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">data</span> <span class="o">=</span> <span class="n">translate</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="s">&quot;client&quot;</span><span class="p">)</span>
+
+    <span class="n">checksum</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span><span class="n">data</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span> <span class="o">&amp;</span> <span class="mh">0xff</span>
+
+    <span class="k">return</span> <span class="mi">1</span> <span class="k">if</span> <span class="n">data</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">==</span> <span class="n">checksum</span> <span class="k">else</span> <span class="mi">0</span></div>
+
+
+<div class="viewcode-block" id="set_checksum"><a class="viewcode-back" href="../tcp_server.html#tcp_server.set_checksum">[docs]</a><span class="k">def</span> <span class="nf">set_checksum</span><span class="p">(</span><span class="n">data</span><span class="p">):</span>
+
+    <span class="sd">&quot;&quot;&quot;计算即将发送的命令的校验和并附加到命令末尾</span>
+
+<span class="sd">    首先调用`translate`函数获得命令的整数列表表示,然后对这个列表的所有元素求和,求和结果与`0xff`做位与操作,所得结果即为校验和,把校验和附加到整数列表的末尾,最后把整数列表转换为二进制串</span>
+
+<span class="sd">    :param data: 即将发送的命令</span>
+<span class="sd">    :return: 带有校验和的命令</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">data</span> <span class="o">=</span> <span class="n">translate</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+
+    <span class="n">checksum</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span><span class="n">data</span><span class="p">)</span> <span class="o">&amp;</span> <span class="mh">0xff</span>
+
+    <span class="n">data</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">checksum</span><span class="p">)</span>
+
+    <span class="n">sequence</span> <span class="o">=</span> <span class="nb">map</span><span class="p">(</span><span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">struct</span><span class="o">.</span><span class="n">pack</span><span class="p">(</span><span class="s">&quot;!B&quot;</span><span class="p">,</span> <span class="n">x</span><span class="p">),</span> <span class="n">data</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="s">&#39;&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">sequence</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="handle_report"><a class="viewcode-back" href="../tcp_server.html#tcp_server.handle_report">[docs]</a><span class="k">def</span> <span class="nf">handle_report</span><span class="p">(</span><span class="n">MAC</span><span class="p">,</span> <span class="n">socket</span><span class="p">,</span> <span class="n">connection</span><span class="p">,</span> <span class="n">cursor</span><span class="p">,</span> <span class="n">data</span><span class="p">):</span>
+
+    <span class="sd">&quot;&quot;&quot;处理上报信息</span>
+
+<span class="sd">    首先检验上报信息的校验和,如果校验失败,发送`f5aa0802`命令,然后检查命令类型,如果命令类型不符,发送`f5aa0801`,如果上述两个检查通过,发送`f5aa0800`</span>
+<span class="sd">    然后根据协议处理上报事件:</span>
+<span class="sd">    </span>
+<span class="sd">        如果事件类型为`1`,表示读取药量错误(设备接触不良);</span>
+<span class="sd">        如果事件类型为`2`,表示用户按下设备物理按键,然后根据按键位置的不同相应的更新`power`字段;</span>
+<span class="sd">        如果事件类型为`3`,表示药水已经用完;</span>
+<span class="sd">        如果事件类型为`4`,表示药水已经更新,调用读取药量函数,更新数据;</span>
+
+<span class="sd">    :param MAC: 设备的物理地址(唯一标志)</span>
+<span class="sd">    :param socket: 设备和程序之间的链接</span>
+<span class="sd">    :param connection: 当前协程的数据库链接(每个协程使用独立的数据库链接)</span>
+<span class="sd">    :param cursor:  当前协程的数据库游标(每个协程使用独立的数据库游标)</span>
+<span class="sd">    :param data: 设备上报数据</span>
+<span class="sd">    :return: 根据上报数据执行某项操作, 无返回值</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="s"> 处理上报信息&quot;</span> <span class="o">%</span> <span class="n">MAC</span><span class="p">)</span>
+
+    <span class="n">data</span> <span class="o">=</span> <span class="n">data</span><span class="p">[:</span><span class="mi">6</span><span class="p">]</span>
+
+    <span class="k">if</span> <span class="n">get_checksum</span><span class="p">(</span><span class="n">data</span><span class="p">):</span>
+
+        <span class="n">data</span> <span class="o">=</span> <span class="n">translate</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="s">&quot;client&quot;</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">data</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span> <span class="o">==</span> <span class="mi">8</span><span class="p">:</span>
+
+            <span class="n">command</span> <span class="o">=</span> <span class="s">&quot;f5aa0800&quot;</span>
+
+            <span class="k">if</span> <span class="n">data</span><span class="p">[</span><span class="mi">3</span><span class="p">]</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+
+                <span class="n">logging</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="s"> 读取药水错误&quot;</span> <span class="o">%</span> <span class="n">MAC</span><span class="p">)</span>
+
+            <span class="k">if</span> <span class="n">data</span><span class="p">[</span><span class="mi">3</span><span class="p">]</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
+
+                <span class="n">key</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="mi">4</span><span class="p">]</span>
+
+                <span class="k">if</span> <span class="n">key</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+
+                    <span class="n">cursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s">&quot;UPDATE device SET power = 0 WHERE mac = </span><span class="si">%s</span><span class="s">&quot;</span><span class="p">,</span> <span class="n">MAC</span><span class="p">)</span>
+
+                <span class="k">else</span><span class="p">:</span>
+
+                    <span class="n">cursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s">&quot;UPDATE device SET power = </span><span class="si">%s</span><span class="s"> WHERE mac = </span><span class="si">%s</span><span class="s">&quot;</span><span class="p">,</span> <span class="p">(</span><span class="mi">2</span> <span class="o">*</span> <span class="n">key</span><span class="p">,</span> <span class="n">MAC</span><span class="p">))</span>
+
+                <span class="n">logging</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="n">cursor</span><span class="o">.</span><span class="n">_last_executed</span><span class="p">)</span>
+
+                <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="s"> 用户按下</span><span class="si">%s</span><span class="s">键&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">MAC</span><span class="p">,</span> <span class="n">key</span><span class="p">))</span>
+
+            <span class="k">if</span> <span class="n">data</span><span class="p">[</span><span class="mi">3</span><span class="p">]</span> <span class="o">==</span> <span class="mi">3</span><span class="p">:</span>
+
+                <span class="n">cursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s">&quot;UPDATE device SET dosage = 0 WHERE mac = </span><span class="si">%s</span><span class="s">&quot;</span><span class="p">,</span> <span class="n">MAC</span><span class="p">)</span>
+
+                <span class="n">logging</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="n">cursor</span><span class="o">.</span><span class="n">_last_executed</span><span class="p">)</span>
+
+                <span class="n">logging</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="s"> 药水已经用完&quot;</span> <span class="o">%</span> <span class="n">MAC</span><span class="p">)</span>
+
+            <span class="k">if</span> <span class="n">data</span><span class="p">[</span><span class="mi">3</span><span class="p">]</span> <span class="o">==</span> <span class="mi">4</span><span class="p">:</span>
+
+                <span class="n">read_remaining_potion</span><span class="p">(</span><span class="n">MAC</span><span class="p">,</span> <span class="n">socket</span><span class="p">,</span> <span class="n">connection</span><span class="p">,</span> <span class="n">cursor</span><span class="p">)</span>
+
+                <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="s"> 药水已经更新&quot;</span> <span class="o">%</span> <span class="n">MAC</span><span class="p">)</span>
+
+        <span class="k">else</span><span class="p">:</span>
+
+            <span class="n">command</span> <span class="o">=</span> <span class="s">&quot;f5aa0801&quot;</span>
+
+            <span class="n">logging</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="s"> 上报命令错误&quot;</span> <span class="o">%</span> <span class="n">MAC</span><span class="p">)</span>
+
+    <span class="k">else</span><span class="p">:</span>
+
+        <span class="n">command</span> <span class="o">=</span> <span class="s">&quot;f5aa0802&quot;</span>
+
+        <span class="n">logging</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="s"> 上报校验错误&quot;</span> <span class="o">%</span> <span class="n">MAC</span><span class="p">)</span>
+
+    <span class="n">send_command</span><span class="p">(</span><span class="n">MAC</span><span class="p">,</span> <span class="n">socket</span><span class="p">,</span> <span class="n">connection</span><span class="p">,</span> <span class="n">cursor</span><span class="p">,</span> <span class="n">command</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="send_command"><a class="viewcode-back" href="../tcp_server.html#tcp_server.send_command">[docs]</a><span class="k">def</span> <span class="nf">send_command</span><span class="p">(</span><span class="n">MAC</span><span class="p">,</span> <span class="n">socket</span><span class="p">,</span> <span class="n">connection</span><span class="p">,</span> <span class="n">cursor</span><span class="p">,</span> <span class="n">command</span><span class="p">,</span> <span class="n">response_length</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">response_type</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">times</span><span class="o">=</span><span class="mi">5</span><span class="p">):</span>
+
+    <span class="sd">&quot;&quot;&quot;通过链接发送命令,等待响应,返回有效响应数据</span>
+
+<span class="sd">    这个函数默认发送五次命令,如果其中有一次发送成功,同时没有其它错误,则返回有效响应数据(删除响应头,命令类型以及校验和),结束循环,函数返回.</span>
+
+<span class="sd">    下面介绍每次循环的流程:</span>
+
+<span class="sd">        首先通过链接尝试发送数据,如果出现异常,关闭连接,清理资源;</span>
+<span class="sd">        然后通过链接尝试接收数据,如果出现异常,关闭连接,清理资源,如果等待超时,进入下次循环,重新发送命令;</span>
+<span class="sd">        获得响应数据,如果响应数据为空,关闭连接,清理资源;</span>
+<span class="sd">        然后检验响应数据类型是否与期望相符,如果相符,则验证校验和,如果校验通过,返回有效响应数据,否则进入下次循环,重新发送命令;</span>
+<span class="sd">        如果响应数据类型与期望不符,把设备响应信息当作上报信息处理</span>
+
+<span class="sd">        *因为处理上报信息过程中发送的命令无需返回,所以发送之后,函数直接返回,不进行后续操作*</span>
+
+<span class="sd">    如果五次循环过后,仍未获得有效响应数据,关闭链接,清理资源</span>
+
+<span class="sd">    :param MAC: 设备的物理地址(唯一标志)</span>
+<span class="sd">    :param socket: 设备和程序之间的链接</span>
+<span class="sd">    :param connection: 当前协程的数据库链接(每个协程使用独立的数据库链接)</span>
+<span class="sd">    :param cursor:  当前协程的数据库游标(每个协程使用独立的数据库游标)</span>
+<span class="sd">    :param command: 待发送的命令</span>
+<span class="sd">    :param response_length: 因为设备返回的响应数据不遵循标准,所以需要根据协议手动获取有效响应数据</span>
+<span class="sd">    :param response_type: 期望的响应数据的类型,用来检查响应数据是否是上报信息</span>
+<span class="sd">    :param times: 循环发送命令的次数,默认值`5`</span>
+<span class="sd">    :return: 如果一切正常,返回有效响应数据;如果指定循环次数过后,仍未获得有效响应数据,返回`None`</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">xrange</span><span class="p">(</span><span class="n">times</span><span class="p">):</span>
+
+        <span class="k">try</span><span class="p">:</span>
+
+            <span class="n">socket</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="n">set_checksum</span><span class="p">(</span><span class="n">command</span><span class="p">))</span>
+
+        <span class="k">except</span><span class="p">:</span>
+
+            <span class="n">cursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s">&quot;UPDATE device SET online = 0 WHERE mac = </span><span class="si">%s</span><span class="s">&quot;</span><span class="p">,</span> <span class="n">MAC</span><span class="p">)</span>
+
+            <span class="n">logging</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="n">cursor</span><span class="o">.</span><span class="n">_last_executed</span><span class="p">)</span>
+
+            <span class="n">logging</span><span class="o">.</span><span class="n">critical</span><span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">exc_info</span><span class="p">()[</span><span class="mi">1</span><span class="p">][</span><span class="mi">1</span><span class="p">])</span>
+
+            <span class="n">cursor</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+            <span class="n">connection</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+            <span class="n">socket</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+            <span class="k">return</span>
+
+        <span class="k">if</span> <span class="n">response_length</span> <span class="o">==</span> <span class="mi">0</span> <span class="ow">and</span> <span class="n">response_type</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+
+            <span class="k">return</span>
+
+        <span class="k">else</span><span class="p">:</span>
+
+            <span class="k">while</span> <span class="mi">1</span><span class="p">:</span>
+
+                <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="s"> 尝试接收数据&quot;</span> <span class="o">%</span> <span class="n">MAC</span><span class="p">)</span>
+
+                <span class="k">try</span><span class="p">:</span>
+
+                    <span class="n">response</span> <span class="o">=</span> <span class="n">socket</span><span class="o">.</span><span class="n">recv</span><span class="p">(</span><span class="mi">4096</span><span class="p">)</span>
+
+                <span class="k">except</span> <span class="n">gevent</span><span class="o">.</span><span class="n">socket</span><span class="o">.</span><span class="n">timeout</span><span class="p">:</span>
+
+                    <span class="k">break</span>
+
+                <span class="k">except</span> <span class="n">gevent</span><span class="o">.</span><span class="n">socket</span><span class="o">.</span><span class="n">error</span><span class="p">:</span>
+
+                    <span class="n">cursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s">&quot;UPDATE device SET online = 0 WHERE mac = </span><span class="si">%s</span><span class="s">&quot;</span><span class="p">,</span> <span class="n">MAC</span><span class="p">)</span>
+
+                    <span class="n">logging</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="n">cursor</span><span class="o">.</span><span class="n">_last_executed</span><span class="p">)</span>
+
+                    <span class="n">logging</span><span class="o">.</span><span class="n">critical</span><span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">exc_info</span><span class="p">()[</span><span class="mi">1</span><span class="p">][</span><span class="mi">1</span><span class="p">])</span>
+
+                    <span class="n">cursor</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+                    <span class="n">connection</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+                    <span class="n">socket</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+                    <span class="k">return</span>
+
+                <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="s"> 发送 </span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">MAC</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">hexlify</span><span class="p">(</span><span class="n">response</span><span class="p">[:</span><span class="n">response_length</span><span class="p">]))))</span>
+
+                <span class="k">if</span> <span class="n">response</span><span class="p">:</span>
+
+                    <span class="n">data</span> <span class="o">=</span> <span class="n">translate</span><span class="p">(</span><span class="n">response</span><span class="p">,</span> <span class="s">&quot;client&quot;</span><span class="p">)</span>
+
+                    <span class="k">if</span> <span class="n">data</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span> <span class="o">!=</span> <span class="n">response_type</span><span class="p">:</span>
+
+                        <span class="n">handle_report</span><span class="p">(</span><span class="n">MAC</span><span class="p">,</span> <span class="n">socket</span><span class="p">,</span> <span class="n">connection</span><span class="p">,</span> <span class="n">cursor</span><span class="p">,</span> <span class="n">response</span><span class="p">)</span>
+
+                        <span class="k">break</span>
+
+                    <span class="k">else</span><span class="p">:</span>
+
+                        <span class="k">if</span> <span class="ow">not</span> <span class="n">get_checksum</span><span class="p">(</span><span class="n">response</span><span class="p">[:</span><span class="n">response_length</span><span class="p">]):</span>
+
+                            <span class="n">logging</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="s"> 响应校验出错&quot;</span> <span class="o">%</span> <span class="n">MAC</span><span class="p">)</span>
+
+                            <span class="k">break</span>
+
+                        <span class="k">else</span><span class="p">:</span>
+
+                            <span class="k">return</span> <span class="n">data</span><span class="p">[</span><span class="mi">3</span><span class="p">:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+                <span class="k">else</span><span class="p">:</span>
+
+                    <span class="n">cursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s">&quot;UPDATE device SET online = 0 WHERE mac = </span><span class="si">%s</span><span class="s">&quot;</span><span class="p">,</span> <span class="n">MAC</span><span class="p">)</span>
+
+                    <span class="n">logging</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="n">cursor</span><span class="o">.</span><span class="n">_last_executed</span><span class="p">)</span>
+
+                    <span class="n">logging</span><span class="o">.</span><span class="n">critical</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="s"> 设备返回空值&quot;</span> <span class="o">%</span> <span class="n">MAC</span><span class="p">)</span>
+
+                    <span class="n">cursor</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+                    <span class="n">connection</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+                    <span class="n">socket</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+                    <span class="k">return</span>
+
+    <span class="n">cursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s">&quot;UPDATE device SET online = 0 WHERE mac = </span><span class="si">%s</span><span class="s">&quot;</span><span class="p">,</span> <span class="n">MAC</span><span class="p">)</span>
+
+    <span class="n">logging</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="n">cursor</span><span class="o">.</span><span class="n">_last_executed</span><span class="p">)</span>
+
+    <span class="n">logging</span><span class="o">.</span><span class="n">critical</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="s"> 等待响应超时&quot;</span> <span class="o">%</span> <span class="n">MAC</span><span class="p">)</span>
+
+    <span class="n">cursor</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+    <span class="n">connection</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+    <span class="n">socket</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+    <span class="k">return</span> <span class="bp">None</span></div>
+
+
+<div class="viewcode-block" id="return_status"><a class="viewcode-back" href="../tcp_server.html#tcp_server.return_status">[docs]</a><span class="k">def</span> <span class="nf">return_status</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">code</span><span class="p">,</span> <span class="n">msg</span><span class="p">):</span>
+
+    <span class="sd">&quot;&quot;&quot;返回设备执行用户命令的结果</span>
+
+<span class="sd">    :param key: 用户命令唯一标志</span>
+<span class="sd">    :param code: 执行结果的状态,`0` 表示执行成功,`1` 表示执行错误</span>
+<span class="sd">    :param msg: 执行结果的信息</span>
+<span class="sd">    :return: None</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">redis_client</span><span class="o">.</span><span class="n">rpush</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">({</span><span class="s">&quot;code&quot;</span><span class="p">:</span> <span class="n">code</span><span class="p">,</span> <span class="s">&quot;msg&quot;</span><span class="p">:</span> <span class="n">msg</span><span class="p">}))</span></div>
+
+
+<div class="viewcode-block" id="test_connection"><a class="viewcode-back" href="../tcp_server.html#tcp_server.test_connection">[docs]</a><span class="k">def</span> <span class="nf">test_connection</span><span class="p">(</span><span class="n">MAC</span><span class="p">,</span> <span class="n">socket</span><span class="p">,</span> <span class="n">connection</span><span class="p">,</span> <span class="n">cursor</span><span class="p">):</span>
+
+    <span class="sd">&quot;&quot;&quot;设备上电连接至服务器，服务器端立刻发送这个命令，并且打开蜂鸣器一声响，提示用户设备已经连接至服务器</span>
+
+<span class="sd">    由于设备问题时常断连,然后重连,现在只在新的设备首次发起链接之时发送这个命令</span>
+
+<span class="sd">    :param MAC: 设备的物理地址(唯一标志)</span>
+<span class="sd">    :param socket: 设备和程序之间的链接</span>
+<span class="sd">    :param connection: 当前协程的数据库链接(每个协程使用独立的数据库链接)</span>
+<span class="sd">    :param cursor:  当前协程的数据库游标(每个协程使用独立的数据库游标)</span>
+<span class="sd">    :return: 根据响应数据,执行某项操作,无返回值(具体规则参见&lt;&lt;设备控制通信协议&gt;&gt;)</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">command</span> <span class="o">=</span> <span class="s">&quot;f5aa010001&quot;</span>
+
+    <span class="n">response</span> <span class="o">=</span> <span class="n">send_command</span><span class="p">(</span><span class="n">MAC</span><span class="p">,</span> <span class="n">socket</span><span class="p">,</span> <span class="n">connection</span><span class="p">,</span> <span class="n">cursor</span><span class="p">,</span> <span class="n">command</span><span class="p">,</span> <span class="mi">5</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="n">response</span><span class="p">)</span> <span class="o">==</span> <span class="nb">list</span><span class="p">:</span>
+
+        <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="s"> 测试链接成功&quot;</span> <span class="o">%</span> <span class="n">MAC</span><span class="p">)</span>
+
+    <span class="k">else</span><span class="p">:</span>
+
+        <span class="n">logging</span><span class="o">.</span><span class="n">critical</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="s"> 测试链接失败&quot;</span> <span class="o">%</span> <span class="n">MAC</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="heartbeat"><a class="viewcode-back" href="../tcp_server.html#tcp_server.heartbeat">[docs]</a><span class="k">def</span> <span class="nf">heartbeat</span><span class="p">(</span><span class="n">MAC</span><span class="p">,</span> <span class="n">socket</span><span class="p">,</span> <span class="n">connection</span><span class="p">,</span> <span class="n">cursor</span><span class="p">,</span> <span class="n">task</span><span class="o">=</span><span class="p">{}):</span>
+
+    <span class="sd">&quot;&quot;&quot;心跳命令,检测设备是否在线,每一分钟检测一次,这个命令后台生成,属于监控设备状态的命令之一</span>
+
+<span class="sd">    :param MAC: 设备的物理地址(唯一标志)</span>
+<span class="sd">    :param socket: 设备和程序之间的链接</span>
+<span class="sd">    :param connection: 当前协程的数据库链接(每个协程使用独立的数据库链接)</span>
+<span class="sd">    :param cursor:  当前协程的数据库游标(每个协程使用独立的数据库游标)</span>
+<span class="sd">    :param task: 由于这个命令后台生成,所以`task`为空</span>
+<span class="sd">    :return: 根据响应数据,执行某项操作,无返回值(具体规则参见&lt;&lt;设备控制通信协议&gt;&gt;)</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">command</span> <span class="o">=</span> <span class="s">&quot;f5aa010000&quot;</span>
+
+    <span class="n">response</span> <span class="o">=</span> <span class="n">send_command</span><span class="p">(</span><span class="n">MAC</span><span class="p">,</span> <span class="n">socket</span><span class="p">,</span> <span class="n">connection</span><span class="p">,</span> <span class="n">cursor</span><span class="p">,</span> <span class="n">command</span><span class="p">,</span> <span class="mi">5</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="n">response</span><span class="p">)</span> <span class="o">==</span> <span class="nb">list</span><span class="p">:</span>
+
+        <span class="n">cursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s">&quot;UPDATE device SET online = 1 WHERE mac = </span><span class="si">%s</span><span class="s">&quot;</span><span class="p">,</span> <span class="n">MAC</span><span class="p">)</span>
+
+        <span class="n">logging</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="n">cursor</span><span class="o">.</span><span class="n">_last_executed</span><span class="p">)</span>
+
+        <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="s"> 心跳测试成功&quot;</span> <span class="o">%</span> <span class="n">MAC</span><span class="p">)</span>
+
+    <span class="k">else</span><span class="p">:</span>
+
+        <span class="n">logging</span><span class="o">.</span><span class="n">critical</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="s"> 心跳测试失败&quot;</span> <span class="o">%</span> <span class="n">MAC</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="check_status"><a class="viewcode-back" href="../tcp_server.html#tcp_server.check_status">[docs]</a><span class="k">def</span> <span class="nf">check_status</span><span class="p">(</span><span class="n">MAC</span><span class="p">,</span> <span class="n">socket</span><span class="p">,</span> <span class="n">connection</span><span class="p">,</span> <span class="n">cursor</span><span class="p">,</span> <span class="n">task</span><span class="o">=</span><span class="p">{}):</span>
+
+    <span class="sd">&quot;&quot;&quot;检查加热器当前状态的命令,每一分钟检测一次,这个命令后台生成,属于监控设备状态的命令之一</span>
+
+<span class="sd">    :param MAC: 设备的物理地址(唯一标志)</span>
+<span class="sd">    :param socket: 设备和程序之间的链接</span>
+<span class="sd">    :param connection: 当前协程的数据库链接(每个协程使用独立的数据库链接)</span>
+<span class="sd">    :param cursor:  当前协程的数据库游标(每个协程使用独立的数据库游标)</span>
+<span class="sd">    :param task: 由于这个命令后台生成,所以`task`为空</span>
+<span class="sd">    :return: 根据响应数据,执行某项操作,无返回值(具体规则参见&lt;&lt;设备控制通信协议&gt;&gt;)</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">command</span> <span class="o">=</span> <span class="s">&quot;f5aa030000&quot;</span>
+
+    <span class="n">response</span> <span class="o">=</span> <span class="n">send_command</span><span class="p">(</span><span class="n">MAC</span><span class="p">,</span> <span class="n">socket</span><span class="p">,</span> <span class="n">connection</span><span class="p">,</span> <span class="n">cursor</span><span class="p">,</span> <span class="n">command</span><span class="p">,</span> <span class="mi">8</span><span class="p">,</span> <span class="mi">3</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="n">response</span><span class="p">)</span> <span class="o">==</span> <span class="nb">list</span><span class="p">:</span>
+
+        <span class="k">if</span> <span class="n">response</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+
+            <span class="k">if</span> <span class="n">response</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+
+                <span class="n">cursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s">&quot;UPDATE device SET power = </span><span class="si">%s</span><span class="s"> WHERE mac = </span><span class="si">%s</span><span class="s">&quot;</span><span class="p">,</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">MAC</span><span class="p">))</span>
+
+            <span class="k">else</span><span class="p">:</span>
+
+                <span class="n">cursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s">&quot;UPDATE device SET power = </span><span class="si">%s</span><span class="s"> WHERE mac = </span><span class="si">%s</span><span class="s">&quot;</span><span class="p">,</span> <span class="p">(</span><span class="n">response</span><span class="p">[</span><span class="mi">2</span><span class="p">],</span> <span class="n">MAC</span><span class="p">))</span>
+
+            <span class="n">logging</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="n">cursor</span><span class="o">.</span><span class="n">_last_executed</span><span class="p">)</span>
+
+            <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="s"> 开关状态: </span><span class="si">%s</span><span class="s">; 应开时间: </span><span class="si">%s</span><span class="s">; 已开时间: </span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">MAC</span><span class="p">,</span> <span class="n">response</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="n">response</span><span class="p">[</span><span class="mi">2</span><span class="p">],</span> <span class="n">response</span><span class="p">[</span><span class="mi">3</span><span class="p">]))</span>
+
+        <span class="k">elif</span> <span class="n">response</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+
+            <span class="n">logging</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="s"> 命令校验出错&quot;</span> <span class="o">%</span> <span class="n">MAC</span><span class="p">)</span>
+
+        <span class="k">elif</span> <span class="n">response</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
+
+            <span class="n">cursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s">&quot;UPDATE device SET dosage = -1 WHERE mac = </span><span class="si">%s</span><span class="s">&quot;</span><span class="p">,</span> <span class="n">MAC</span><span class="p">)</span>
+
+            <span class="n">logging</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="n">cursor</span><span class="o">.</span><span class="n">_last_executed</span><span class="p">)</span>
+
+            <span class="n">logging</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="s"> 药水已被拔出&quot;</span> <span class="o">%</span> <span class="n">MAC</span><span class="p">)</span>
+
+        <span class="k">elif</span> <span class="n">response</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="mi">3</span><span class="p">:</span>
+
+            <span class="n">cursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s">&quot;UPDATE device SET dosage = 0 WHERE mac = </span><span class="si">%s</span><span class="s">&quot;</span><span class="p">,</span> <span class="n">MAC</span><span class="p">)</span>
+
+            <span class="n">logging</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="n">cursor</span><span class="o">.</span><span class="n">_last_executed</span><span class="p">)</span>
+
+            <span class="n">logging</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="s"> 药水已经用完&quot;</span> <span class="o">%</span> <span class="n">MAC</span><span class="p">)</span>
+
+        <span class="k">elif</span> <span class="n">response</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="mi">4</span><span class="p">:</span>
+
+            <span class="n">logging</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="s"> 读取药水错误&quot;</span> <span class="o">%</span> <span class="n">MAC</span><span class="p">)</span>
+
+    <span class="k">else</span><span class="p">:</span>
+
+        <span class="n">logging</span><span class="o">.</span><span class="n">critical</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="s"> 状态查询失败&quot;</span> <span class="o">%</span> <span class="n">MAC</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="turnon"><a class="viewcode-back" href="../tcp_server.html#tcp_server.turnon">[docs]</a><span class="k">def</span> <span class="nf">turnon</span><span class="p">(</span><span class="n">MAC</span><span class="p">,</span> <span class="n">socket</span><span class="p">,</span> <span class="n">connection</span><span class="p">,</span> <span class="n">cursor</span><span class="p">,</span> <span class="n">task</span><span class="p">):</span>
+
+    <span class="sd">&quot;&quot;&quot;打开加热器的命令,这个命令由用户通过移动应用发送,发送该命令的时候需要指定加热时长</span>
+
+<span class="sd">    :param MAC: 设备的物理地址(唯一标志)</span>
+<span class="sd">    :param socket: 设备和程序之间的链接</span>
+<span class="sd">    :param connection: 当前协程的数据库链接(每个协程使用独立的数据库链接)</span>
+<span class="sd">    :param cursor:  当前协程的数据库游标(每个协程使用独立的数据库游标)</span>
+<span class="sd">    :param task: 打开加热器命令的具体内容(json类型)</span>
+<span class="sd">    :return: 根据响应数据,执行某项操作,无返回值(具体规则参见&lt;&lt;设备控制通信协议&gt;&gt;)</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">if</span> <span class="n">task</span><span class="p">[</span><span class="s">&quot;time&quot;</span><span class="p">]</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">5</span><span class="p">,</span> <span class="mi">6</span><span class="p">,</span> <span class="mi">7</span><span class="p">,</span> <span class="mi">8</span><span class="p">]:</span>
+
+        <span class="n">logging</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="s"> 加热持续时间超出预定范围&quot;</span> <span class="o">%</span> <span class="n">MAC</span><span class="p">)</span>
+
+        <span class="n">return_status</span><span class="p">(</span><span class="n">task</span><span class="p">[</span><span class="s">&quot;id&quot;</span><span class="p">],</span> <span class="mi">1</span><span class="p">,</span> <span class="s">&quot;</span><span class="si">%s</span><span class="s"> 加热持续时间超出预定范围&quot;</span> <span class="o">%</span> <span class="n">MAC</span><span class="p">)</span>
+
+        <span class="k">return</span>
+
+    <span class="n">command</span> <span class="o">=</span> <span class="s">&quot;f5aa0301&quot;</span> <span class="o">+</span> <span class="s">&#39;0&#39;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">task</span><span class="p">[</span><span class="s">&quot;time&quot;</span><span class="p">])</span>
+
+    <span class="n">response</span> <span class="o">=</span> <span class="n">send_command</span><span class="p">(</span><span class="n">MAC</span><span class="p">,</span> <span class="n">socket</span><span class="p">,</span> <span class="n">connection</span><span class="p">,</span> <span class="n">cursor</span><span class="p">,</span> <span class="n">command</span><span class="p">,</span> <span class="mi">8</span><span class="p">,</span> <span class="mi">3</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="n">response</span><span class="p">)</span> <span class="o">==</span> <span class="nb">list</span><span class="p">:</span>
+
+        <span class="k">if</span> <span class="n">response</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+
+            <span class="n">cursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s">&quot;UPDATE device SET power = </span><span class="si">%s</span><span class="s"> WHERE mac = </span><span class="si">%s</span><span class="s">&quot;</span><span class="p">,</span> <span class="p">(</span><span class="n">task</span><span class="p">[</span><span class="s">&quot;time&quot;</span><span class="p">],</span> <span class="n">MAC</span><span class="p">))</span>
+
+            <span class="n">logging</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="n">cursor</span><span class="o">.</span><span class="n">_last_executed</span><span class="p">)</span>
+
+            <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="s"> 设备已经打开&quot;</span> <span class="o">%</span> <span class="n">MAC</span><span class="p">)</span>
+
+            <span class="n">return_status</span><span class="p">(</span><span class="n">task</span><span class="p">[</span><span class="s">&quot;id&quot;</span><span class="p">],</span> <span class="mi">0</span><span class="p">,</span> <span class="s">&quot;</span><span class="si">%s</span><span class="s"> 设备已经打开&quot;</span> <span class="o">%</span> <span class="n">MAC</span><span class="p">)</span>
+
+        <span class="k">elif</span> <span class="n">response</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+
+            <span class="n">logging</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="s"> 命令校验出错&quot;</span> <span class="o">%</span> <span class="n">MAC</span><span class="p">)</span>
+
+            <span class="n">return_status</span><span class="p">(</span><span class="n">task</span><span class="p">[</span><span class="s">&quot;id&quot;</span><span class="p">],</span> <span class="mi">1</span><span class="p">,</span> <span class="s">&quot;</span><span class="si">%s</span><span class="s"> 命令校验出错&quot;</span> <span class="o">%</span> <span class="n">MAC</span><span class="p">)</span>
+
+        <span class="k">elif</span> <span class="n">response</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
+
+            <span class="n">cursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s">&quot;UPDATE device SET dosage = -1 WHERE mac = </span><span class="si">%s</span><span class="s">&quot;</span><span class="p">,</span> <span class="n">MAC</span><span class="p">)</span>
+
+            <span class="n">logging</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="n">cursor</span><span class="o">.</span><span class="n">_last_executed</span><span class="p">)</span>
+
+            <span class="n">logging</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="s"> 药水已被拔出&quot;</span> <span class="o">%</span> <span class="n">MAC</span><span class="p">)</span>
+
+            <span class="n">return_status</span><span class="p">(</span><span class="n">task</span><span class="p">[</span><span class="s">&quot;id&quot;</span><span class="p">],</span> <span class="mi">1</span><span class="p">,</span> <span class="s">&quot;</span><span class="si">%s</span><span class="s"> 药水已被拔出&quot;</span> <span class="o">%</span> <span class="n">MAC</span><span class="p">)</span>
+
+        <span class="k">elif</span> <span class="n">response</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="mi">3</span><span class="p">:</span>
+
+            <span class="n">cursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s">&quot;UPDATE device SET dosage = 0 WHERE mac = </span><span class="si">%s</span><span class="s">&quot;</span><span class="p">,</span> <span class="n">MAC</span><span class="p">)</span>
+
+            <span class="n">logging</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="n">cursor</span><span class="o">.</span><span class="n">_last_executed</span><span class="p">)</span>
+
+            <span class="n">logging</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="s"> 药水已经用完&quot;</span> <span class="o">%</span> <span class="n">MAC</span><span class="p">)</span>
+
+            <span class="n">return_status</span><span class="p">(</span><span class="n">task</span><span class="p">[</span><span class="s">&quot;id&quot;</span><span class="p">],</span> <span class="mi">1</span><span class="p">,</span> <span class="s">&quot;</span><span class="si">%s</span><span class="s"> 药水已经用完&quot;</span> <span class="o">%</span> <span class="n">MAC</span><span class="p">)</span>
+
+        <span class="k">elif</span> <span class="n">response</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="mi">4</span><span class="p">:</span>
+
+            <span class="n">logging</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="s"> 读取药水错误&quot;</span> <span class="o">%</span> <span class="n">MAC</span><span class="p">)</span>
+
+            <span class="n">return_status</span><span class="p">(</span><span class="n">task</span><span class="p">[</span><span class="s">&quot;id&quot;</span><span class="p">],</span> <span class="mi">1</span><span class="p">,</span> <span class="s">&quot;</span><span class="si">%s</span><span class="s"> 读取药水错误&quot;</span> <span class="o">%</span> <span class="n">MAC</span><span class="p">)</span>
+
+    <span class="k">else</span><span class="p">:</span>
+
+        <span class="n">logging</span><span class="o">.</span><span class="n">critical</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="s"> 设备开启失败&quot;</span> <span class="o">%</span> <span class="n">MAC</span><span class="p">)</span>
+
+        <span class="n">return_status</span><span class="p">(</span><span class="n">task</span><span class="p">[</span><span class="s">&quot;id&quot;</span><span class="p">],</span> <span class="mi">1</span><span class="p">,</span> <span class="s">&quot;</span><span class="si">%s</span><span class="s"> 设备开启失败&quot;</span> <span class="o">%</span> <span class="n">MAC</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="turnof"><a class="viewcode-back" href="../tcp_server.html#tcp_server.turnof">[docs]</a><span class="k">def</span> <span class="nf">turnof</span><span class="p">(</span><span class="n">MAC</span><span class="p">,</span> <span class="n">socket</span><span class="p">,</span> <span class="n">connection</span><span class="p">,</span> <span class="n">cursor</span><span class="p">,</span> <span class="n">task</span><span class="p">):</span>
+
+    <span class="sd">&quot;&quot;&quot;关闭加热器的命令,这个命令由用户通过移动应用发送</span>
+
+<span class="sd">    :param MAC: 设备的物理地址(唯一标志)</span>
+<span class="sd">    :param socket: 设备和程序之间的链接</span>
+<span class="sd">    :param connection: 当前协程的数据库链接(每个协程使用独立的数据库链接)</span>
+<span class="sd">    :param cursor:  当前协程的数据库游标(每个协程使用独立的数据库游标)</span>
+<span class="sd">    :param task: 关闭加热器命令的具体内容(json类型)</span>
+<span class="sd">    :return: 根据响应数据,执行某项操作,无返回值(具体规则参见&lt;&lt;设备控制通信协议&gt;&gt;)</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">command</span> <span class="o">=</span> <span class="s">&quot;f5aa030100&quot;</span>
+
+    <span class="n">response</span> <span class="o">=</span> <span class="n">send_command</span><span class="p">(</span><span class="n">MAC</span><span class="p">,</span> <span class="n">socket</span><span class="p">,</span> <span class="n">connection</span><span class="p">,</span> <span class="n">cursor</span><span class="p">,</span> <span class="n">command</span><span class="p">,</span> <span class="mi">8</span><span class="p">,</span> <span class="mi">3</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="n">response</span><span class="p">)</span> <span class="o">==</span> <span class="nb">list</span><span class="p">:</span>
+
+        <span class="k">if</span> <span class="n">response</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+
+            <span class="n">cursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s">&quot;UPDATE device SET power = 0 WHERE mac = </span><span class="si">%s</span><span class="s">&quot;</span><span class="p">,</span> <span class="n">MAC</span><span class="p">)</span>
+
+            <span class="n">logging</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="n">cursor</span><span class="o">.</span><span class="n">_last_executed</span><span class="p">)</span>
+
+            <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="s"> 设备已经关闭&quot;</span> <span class="o">%</span> <span class="n">MAC</span><span class="p">)</span>
+
+            <span class="n">return_status</span><span class="p">(</span><span class="n">task</span><span class="p">[</span><span class="s">&quot;id&quot;</span><span class="p">],</span> <span class="mi">0</span><span class="p">,</span> <span class="s">&quot;</span><span class="si">%s</span><span class="s"> 设备已经关闭&quot;</span> <span class="o">%</span> <span class="n">MAC</span><span class="p">)</span>
+
+        <span class="k">elif</span> <span class="n">response</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+
+            <span class="n">logging</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="s"> 命令校验出错&quot;</span> <span class="o">%</span> <span class="n">MAC</span><span class="p">)</span>
+
+            <span class="n">return_status</span><span class="p">(</span><span class="n">task</span><span class="p">[</span><span class="s">&quot;id&quot;</span><span class="p">],</span> <span class="mi">1</span><span class="p">,</span> <span class="s">&quot;</span><span class="si">%s</span><span class="s"> 命令校验出错&quot;</span> <span class="o">%</span> <span class="n">MAC</span><span class="p">)</span>
+
+        <span class="k">elif</span> <span class="n">response</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
+
+            <span class="n">cursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s">&quot;UPDATE device SET dosage = -1 WHERE mac = </span><span class="si">%s</span><span class="s">&quot;</span><span class="p">,</span> <span class="n">MAC</span><span class="p">)</span>
+
+            <span class="n">logging</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="n">cursor</span><span class="o">.</span><span class="n">_last_executed</span><span class="p">)</span>
+
+            <span class="n">logging</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="s"> 药水已被拔出&quot;</span> <span class="o">%</span> <span class="n">MAC</span><span class="p">)</span>
+
+            <span class="n">return_status</span><span class="p">(</span><span class="n">task</span><span class="p">[</span><span class="s">&quot;id&quot;</span><span class="p">],</span> <span class="mi">1</span><span class="p">,</span> <span class="s">&quot;</span><span class="si">%s</span><span class="s"> 药水已被拔出&quot;</span> <span class="o">%</span> <span class="n">MAC</span><span class="p">)</span>
+
+        <span class="k">elif</span> <span class="n">response</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="mi">3</span><span class="p">:</span>
+
+            <span class="n">cursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s">&quot;UPDATE device SET dosage = 0 WHERE mac = </span><span class="si">%s</span><span class="s">&quot;</span><span class="p">,</span> <span class="n">MAC</span><span class="p">)</span>
+
+            <span class="n">logging</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="n">cursor</span><span class="o">.</span><span class="n">_last_executed</span><span class="p">)</span>
+
+            <span class="n">logging</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="s"> 药水已经用完&quot;</span> <span class="o">%</span> <span class="n">MAC</span><span class="p">)</span>
+
+            <span class="n">return_status</span><span class="p">(</span><span class="n">task</span><span class="p">[</span><span class="s">&quot;id&quot;</span><span class="p">],</span> <span class="mi">1</span><span class="p">,</span> <span class="s">&quot;</span><span class="si">%s</span><span class="s"> 药水已经用完&quot;</span> <span class="o">%</span> <span class="n">MAC</span><span class="p">)</span>
+
+        <span class="k">elif</span> <span class="n">response</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="mi">4</span><span class="p">:</span>
+
+            <span class="n">logging</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="s"> 读取药水错误&quot;</span> <span class="o">%</span> <span class="n">MAC</span><span class="p">)</span>
+
+            <span class="n">return_status</span><span class="p">(</span><span class="n">task</span><span class="p">[</span><span class="s">&quot;id&quot;</span><span class="p">],</span> <span class="mi">1</span><span class="p">,</span> <span class="s">&quot;</span><span class="si">%s</span><span class="s"> 读取药水错误&quot;</span> <span class="o">%</span> <span class="n">MAC</span><span class="p">)</span>
+
+    <span class="k">else</span><span class="p">:</span>
+
+        <span class="n">logging</span><span class="o">.</span><span class="n">critical</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="s"> 设备关闭失败&quot;</span> <span class="o">%</span> <span class="n">MAC</span><span class="p">)</span>
+
+        <span class="n">return_status</span><span class="p">(</span><span class="n">task</span><span class="p">[</span><span class="s">&quot;id&quot;</span><span class="p">],</span> <span class="mi">1</span><span class="p">,</span> <span class="s">&quot;</span><span class="si">%s</span><span class="s"> 设备关闭失败&quot;</span> <span class="o">%</span> <span class="n">MAC</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="delete"><a class="viewcode-back" href="../tcp_server.html#tcp_server.delete">[docs]</a><span class="k">def</span> <span class="nf">delete</span><span class="p">(</span><span class="n">MAC</span><span class="p">,</span> <span class="n">socket</span><span class="p">,</span> <span class="n">connection</span><span class="p">,</span> <span class="n">cursor</span><span class="p">,</span> <span class="n">task</span><span class="p">):</span>
+
+    <span class="sd">&quot;&quot;&quot;删除设备命令,这个命令由用户通过移动应用发送,从全局变量`greenlets`以及数据库删除这个设备</span>
+
+<span class="sd">    :param MAC: 设备的物理地址(唯一标志)</span>
+<span class="sd">    :param socket: 设备和程序之间的链接</span>
+<span class="sd">    :param connection: 当前协程的数据库链接(每个协程使用独立的数据库链接)</span>
+<span class="sd">    :param cursor:  当前协程的数据库游标(每个协程使用独立的数据库游标)</span>
+<span class="sd">    :param task: 删除设备命令的具体内容(json类型)</span>
+<span class="sd">    :return: 无返回值</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">del</span> <span class="n">greenlets</span><span class="p">[</span><span class="n">MAC</span><span class="p">]</span>
+
+    <span class="n">cursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s">&quot;DELETE FROM device WHERE mac = </span><span class="si">%s</span><span class="s">&quot;</span><span class="p">,</span> <span class="n">MAC</span><span class="p">)</span>
+
+    <span class="n">logging</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="n">cursor</span><span class="o">.</span><span class="n">_last_executed</span><span class="p">)</span>
+
+    <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="s"> 设备已被删除&quot;</span> <span class="o">%</span> <span class="n">MAC</span><span class="p">)</span>
+
+    <span class="n">return_status</span><span class="p">(</span><span class="n">task</span><span class="p">[</span><span class="s">&quot;id&quot;</span><span class="p">],</span> <span class="mi">0</span><span class="p">,</span> <span class="s">&quot;</span><span class="si">%s</span><span class="s"> 设备已被删除&quot;</span> <span class="o">%</span> <span class="n">MAC</span><span class="p">)</span>
+
+    <span class="n">cursor</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+    <span class="n">connection</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+    <span class="n">socket</span><span class="o">.</span><span class="n">close</span><span class="p">()</span></div>
+
+
+<div class="viewcode-block" id="read_temperature_humidity"><a class="viewcode-back" href="../tcp_server.html#tcp_server.read_temperature_humidity">[docs]</a><span class="k">def</span> <span class="nf">read_temperature_humidity</span><span class="p">(</span><span class="n">MAC</span><span class="p">,</span> <span class="n">socket</span><span class="p">,</span> <span class="n">connection</span><span class="p">,</span> <span class="n">cursor</span><span class="p">,</span> <span class="n">task</span><span class="o">=</span><span class="p">{}):</span>
+
+    <span class="sd">&quot;&quot;&quot;读取设备所处环境的温度和湿度的命令,每一分钟读取一次,这个命令后台生成,属于监控设备状态的命令之一</span>
+
+<span class="sd">    具体的温度和湿度解析规则参见&lt;&lt;设备控制通信协议&gt;&gt;</span>
+
+<span class="sd">    其中温度等于`-273`和湿度等于`0`表示传感器有故障</span>
+
+<span class="sd">    :param MAC: 设备的物理地址(唯一标志)</span>
+<span class="sd">    :param socket: 设备和程序之间的链接</span>
+<span class="sd">    :param connection: 当前协程的数据库链接(每个协程使用独立的数据库链接)</span>
+<span class="sd">    :param cursor:  当前协程的数据库游标(每个协程使用独立的数据库游标)</span>
+<span class="sd">    :param task: 由于这个命令后台生成,所以`task`为空</span>
+<span class="sd">    :return: 根据响应数据,执行某项操作,无返回值(具体规则参见&lt;&lt;设备控制通信协议&gt;&gt;)</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">command</span> <span class="o">=</span> <span class="s">&quot;f5aa04&quot;</span>
+
+    <span class="n">response</span> <span class="o">=</span> <span class="n">send_command</span><span class="p">(</span><span class="n">MAC</span><span class="p">,</span> <span class="n">socket</span><span class="p">,</span> <span class="n">connection</span><span class="p">,</span> <span class="n">cursor</span><span class="p">,</span> <span class="n">command</span><span class="p">,</span> <span class="mi">9</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="n">response</span><span class="p">)</span> <span class="o">==</span> <span class="nb">list</span><span class="p">:</span>
+
+        <span class="k">if</span> <span class="n">response</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+
+            <span class="n">temp_high_byte</span> <span class="o">=</span> <span class="s">&quot;{0:08b}&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">response</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
+
+            <span class="n">flag</span> <span class="o">=</span> <span class="n">temp_high_byte</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+
+            <span class="n">temp_high_byte</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">temp_high_byte</span><span class="p">[</span><span class="mi">1</span><span class="p">:],</span> <span class="mi">2</span><span class="p">)</span>
+
+            <span class="n">temperature</span> <span class="o">=</span> <span class="p">(</span><span class="n">temp_high_byte</span> <span class="o">*</span> <span class="mi">256</span> <span class="o">+</span> <span class="n">response</span><span class="p">[</span><span class="mi">2</span><span class="p">])</span> <span class="o">/</span> <span class="nb">float</span><span class="p">(</span><span class="mi">10</span><span class="p">)</span>
+
+            <span class="k">if</span> <span class="n">flag</span> <span class="o">==</span> <span class="s">&#39;1&#39;</span><span class="p">:</span>
+
+                <span class="n">temperature</span> <span class="o">=</span> <span class="o">-</span><span class="n">temperature</span>
+
+            <span class="n">humidity</span> <span class="o">=</span> <span class="p">(</span><span class="n">response</span><span class="p">[</span><span class="mi">3</span><span class="p">]</span> <span class="o">*</span> <span class="mi">256</span> <span class="o">+</span> <span class="n">response</span><span class="p">[</span><span class="mi">4</span><span class="p">])</span> <span class="o">/</span> <span class="nb">float</span><span class="p">(</span><span class="mi">10</span><span class="p">)</span>
+
+            <span class="n">cursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s">&quot;UPDATE device SET temperature = </span><span class="si">%s</span><span class="s">, humidity = </span><span class="si">%s</span><span class="s"> WHERE mac = </span><span class="si">%s</span><span class="s">&quot;</span><span class="p">,</span> <span class="p">(</span><span class="n">temperature</span><span class="p">,</span> <span class="n">humidity</span><span class="p">,</span> <span class="n">MAC</span><span class="p">))</span>
+
+            <span class="n">logging</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="n">cursor</span><span class="o">.</span><span class="n">_last_executed</span><span class="p">)</span>
+
+            <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="s"> 温度湿度读取成功&quot;</span> <span class="o">%</span> <span class="n">MAC</span><span class="p">)</span>
+
+        <span class="k">elif</span> <span class="n">response</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+
+            <span class="n">cursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s">&quot;UPDATE device SET temperature = -273, humidity = 0 WHERE mac = </span><span class="si">%s</span><span class="s">&quot;</span><span class="p">,</span> <span class="n">MAC</span><span class="p">)</span>
+
+            <span class="n">logging</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="n">cursor</span><span class="o">.</span><span class="n">_last_executed</span><span class="p">)</span>
+
+            <span class="n">logging</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="s"> 传感器有故障&quot;</span> <span class="o">%</span> <span class="n">MAC</span><span class="p">)</span>
+
+        <span class="k">elif</span> <span class="n">response</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
+
+            <span class="n">logging</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="s"> 命令校验出错&quot;</span> <span class="o">%</span> <span class="n">MAC</span><span class="p">)</span>
+
+    <span class="k">else</span><span class="p">:</span>
+
+        <span class="n">logging</span><span class="o">.</span><span class="n">critical</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="s"> 温度湿度读取失败&quot;</span> <span class="o">%</span> <span class="n">MAC</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="read_remaining_potion"><a class="viewcode-back" href="../tcp_server.html#tcp_server.read_remaining_potion">[docs]</a><span class="k">def</span> <span class="nf">read_remaining_potion</span><span class="p">(</span><span class="n">MAC</span><span class="p">,</span> <span class="n">socket</span><span class="p">,</span> <span class="n">connection</span><span class="p">,</span> <span class="n">cursor</span><span class="p">,</span> <span class="n">task</span><span class="o">=</span><span class="p">{}):</span>
+
+    <span class="sd">&quot;&quot;&quot;读取剩余药量的命令,每一分钟读取一次,这个命令后台生成,属于监控设备状态的命令之一</span>
+
+<span class="sd">    具体的药量解析规则参见&lt;&lt;设备控制通信协议&gt;&gt;</span>
+
+<span class="sd">    其中药量等于`-1`表示并未插入药水</span>
+
+<span class="sd">    :param MAC: 设备的物理地址(唯一标志)</span>
+<span class="sd">    :param socket: 设备和程序之间的链接</span>
+<span class="sd">    :param connection: 当前协程的数据库链接(每个协程使用独立的数据库链接)</span>
+<span class="sd">    :param cursor:  当前协程的数据库游标(每个协程使用独立的数据库游标)</span>
+<span class="sd">    :param task: 由于这个命令后台生成,所以`task`为空</span>
+<span class="sd">    :return: 根据响应数据,执行某项操作,无返回值(具体规则参见&lt;&lt;设备控制通信协议&gt;&gt;)</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">command</span> <span class="o">=</span> <span class="s">&quot;f5aa07&quot;</span>
+
+    <span class="n">response</span> <span class="o">=</span> <span class="n">send_command</span><span class="p">(</span><span class="n">MAC</span><span class="p">,</span> <span class="n">socket</span><span class="p">,</span> <span class="n">connection</span><span class="p">,</span> <span class="n">cursor</span><span class="p">,</span> <span class="n">command</span><span class="p">,</span> <span class="mi">7</span><span class="p">,</span> <span class="mi">7</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="n">response</span><span class="p">)</span> <span class="o">==</span> <span class="nb">list</span><span class="p">:</span>
+
+        <span class="k">if</span> <span class="n">response</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+
+            <span class="n">total</span> <span class="o">=</span> <span class="mi">150</span> <span class="o">*</span> <span class="mi">60</span>
+
+            <span class="n">remain</span> <span class="o">=</span> <span class="p">(</span><span class="n">total</span> <span class="o">-</span> <span class="p">(</span><span class="n">response</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">*</span> <span class="mi">60</span> <span class="o">+</span> <span class="n">response</span><span class="p">[</span><span class="mi">2</span><span class="p">]))</span> <span class="o">/</span> <span class="nb">float</span><span class="p">(</span><span class="n">total</span><span class="p">)</span>
+
+            <span class="n">remain</span> <span class="o">=</span> <span class="nb">round</span><span class="p">(</span><span class="n">remain</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+
+            <span class="n">cursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s">&quot;UPDATE device SET dosage = </span><span class="si">%s</span><span class="s"> WHERE mac = </span><span class="si">%s</span><span class="s">&quot;</span><span class="p">,</span> <span class="p">(</span><span class="n">remain</span><span class="p">,</span> <span class="n">MAC</span><span class="p">))</span>
+
+            <span class="n">logging</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="n">cursor</span><span class="o">.</span><span class="n">_last_executed</span><span class="p">)</span>
+
+            <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="s"> 药量读取成功&quot;</span> <span class="o">%</span> <span class="n">MAC</span><span class="p">)</span>
+
+        <span class="k">elif</span> <span class="n">response</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+
+            <span class="n">logging</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="s"> 命令校验出错&quot;</span> <span class="o">%</span> <span class="n">MAC</span><span class="p">)</span>
+
+        <span class="k">elif</span> <span class="n">response</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
+
+            <span class="n">cursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s">&quot;UPDATE device SET dosage = -1 WHERE mac = </span><span class="si">%s</span><span class="s">&quot;</span><span class="p">,</span> <span class="n">MAC</span><span class="p">)</span>
+
+            <span class="n">logging</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="n">cursor</span><span class="o">.</span><span class="n">_last_executed</span><span class="p">)</span>
+
+            <span class="n">logging</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="s"> 药水已被拔出&quot;</span> <span class="o">%</span> <span class="n">MAC</span><span class="p">)</span>
+
+        <span class="k">elif</span> <span class="n">response</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="mi">3</span><span class="p">:</span>
+
+            <span class="n">cursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s">&quot;UPDATE device SET dosage = 0 WHERE mac = </span><span class="si">%s</span><span class="s">&quot;</span><span class="p">,</span> <span class="n">MAC</span><span class="p">)</span>
+
+            <span class="n">logging</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="n">cursor</span><span class="o">.</span><span class="n">_last_executed</span><span class="p">)</span>
+
+            <span class="n">logging</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="s"> 药水已经用完&quot;</span> <span class="o">%</span> <span class="n">MAC</span><span class="p">)</span>
+
+        <span class="k">elif</span> <span class="n">response</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="mi">4</span><span class="p">:</span>
+
+            <span class="n">logging</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="s"> 读取药水错误&quot;</span> <span class="o">%</span> <span class="n">MAC</span><span class="p">)</span>
+
+    <span class="k">else</span><span class="p">:</span>
+
+        <span class="n">logging</span><span class="o">.</span><span class="n">critical</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="s"> 药量读取失败&quot;</span> <span class="o">%</span> <span class="n">MAC</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="handle"><a class="viewcode-back" href="../tcp_server.html#tcp_server.handle">[docs]</a><span class="k">def</span> <span class="nf">handle</span><span class="p">(</span><span class="n">socket</span><span class="p">,</span> <span class="n">address</span><span class="p">):</span>
+
+    <span class="sd">&quot;&quot;&quot;每个协程运行的主函数,每当某个设备发起链接,服务器创建一个新的协程运行该函数</span>
+
+<span class="sd">    这个函数首先检测是否是有效设备发起的链接,正常设备发起链接,首先需要上报该设备的物理地址,通过这个检测之后,然后使用全局变量`greenlets`以及数据库来确定该设备的具体情况</span>
+
+<span class="sd">    接下来是这个函数的主要部分: 一个无限循环,在循环过程中转发用户命令,监控设备状态,处理设备上报信息</span>
+
+<span class="sd">    单次循环具体流程描述如下:</span>
+
+<span class="sd">        首先检查`redis`是否含有发向当前设备的命令:</span>
+
+<span class="sd">            如果有,执行相应命令;</span>
+<span class="sd">            如果没有,则尝试接收设备的上报信息(具体流程参见`send_command`);</span>
+<span class="sd">            执行下次循环;</span>
+
+<span class="sd">    :param socket: 设备和程序之间的链接</span>
+<span class="sd">    :param address: 设备具体`IP`地址以及端口</span>
+<span class="sd">    :return: 无返回值</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&quot;设备接入: </span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="n">socket</span><span class="p">)</span>
+
+    <span class="k">try</span><span class="p">:</span>
+
+        <span class="n">MAC</span> <span class="o">=</span> <span class="n">socket</span><span class="o">.</span><span class="n">recv</span><span class="p">(</span><span class="mi">4096</span><span class="p">)</span>
+
+    <span class="k">except</span><span class="p">:</span>
+
+        <span class="n">logging</span><span class="o">.</span><span class="n">critical</span><span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">exc_info</span><span class="p">()[</span><span class="mi">1</span><span class="p">][</span><span class="mi">1</span><span class="p">])</span>
+
+        <span class="n">logging</span><span class="o">.</span><span class="n">critical</span><span class="p">(</span><span class="s">&quot;接收数据失败&quot;</span><span class="p">)</span>
+
+        <span class="n">socket</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+        <span class="k">return</span>
+
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">re</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="s">&quot;[0-9A-F]{12}&quot;</span><span class="p">,</span> <span class="n">MAC</span><span class="p">):</span>
+
+        <span class="n">logging</span><span class="o">.</span><span class="n">critical</span><span class="p">(</span><span class="s">&quot;物理地址无效: </span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="n">MAC</span><span class="p">)</span>
+
+        <span class="n">socket</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+        <span class="k">return</span>
+
+    <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&quot;物理地址: </span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="n">MAC</span><span class="p">)</span>
+
+    <span class="c"># time.sleep(2)</span>
+    <span class="c">#</span>
+    <span class="c"># logging.info(&quot;发送测试命令: %s&quot; % MAC)  #</span>
+    <span class="c">#</span>
+    <span class="c"># test_connection(MAC, socket, connection, cursor)  #</span>
+
+    <span class="n">connection</span> <span class="o">=</span> <span class="n">pymysql</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="n">host</span><span class="o">=</span><span class="s">&quot;120.25.205.115&quot;</span><span class="p">,</span> <span class="n">user</span><span class="o">=</span><span class="s">&quot;root&quot;</span><span class="p">,</span> <span class="n">passwd</span><span class="o">=</span><span class="s">&quot;86564d7071&quot;</span><span class="p">,</span> <span class="n">db</span><span class="o">=</span><span class="s">&quot;hxd2&quot;</span><span class="p">)</span>
+
+    <span class="n">connection</span><span class="o">.</span><span class="n">autocommit</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+
+    <span class="n">cursor</span> <span class="o">=</span> <span class="n">connection</span><span class="o">.</span><span class="n">cursor</span><span class="p">()</span>
+
+    <span class="k">if</span> <span class="n">MAC</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">greenlets</span><span class="p">:</span>
+
+        <span class="n">greenlets</span><span class="p">[</span><span class="n">MAC</span><span class="p">]</span> <span class="o">=</span> <span class="n">gevent</span><span class="o">.</span><span class="n">getcurrent</span><span class="p">()</span>
+
+        <span class="n">cursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s">&quot;SELECT id FROM device WHERE mac = </span><span class="si">%s</span><span class="s">&quot;</span><span class="p">,</span> <span class="n">MAC</span><span class="p">)</span>
+
+        <span class="n">logging</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="n">cursor</span><span class="o">.</span><span class="n">_last_executed</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">cursor</span><span class="o">.</span><span class="n">fetchall</span><span class="p">():</span>
+
+            <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&quot;新的设备: </span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="n">MAC</span><span class="p">)</span>
+
+            <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&quot;发送测试命令: </span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="n">MAC</span><span class="p">)</span>  <span class="c">#</span>
+
+            <span class="n">test_connection</span><span class="p">(</span><span class="n">MAC</span><span class="p">,</span> <span class="n">socket</span><span class="p">,</span> <span class="n">connection</span><span class="p">,</span> <span class="n">cursor</span><span class="p">)</span>  <span class="c">#</span>
+
+            <span class="n">current_time</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">())</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39;.&#39;</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
+
+            <span class="n">cursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s">&quot;INSERT INTO device (mac, online, ctime, utime, ip) VALUES (</span><span class="si">%s</span><span class="s">, </span><span class="si">%s</span><span class="s">, </span><span class="si">%s</span><span class="s">, </span><span class="si">%s</span><span class="s">, </span><span class="si">%s</span><span class="s">)&quot;</span><span class="p">,</span> <span class="p">(</span><span class="n">MAC</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="n">current_time</span><span class="p">,</span> <span class="n">current_time</span><span class="p">,</span> <span class="n">address</span><span class="p">[</span><span class="mi">0</span><span class="p">]))</span>
+
+            <span class="n">logging</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="n">cursor</span><span class="o">.</span><span class="n">_last_executed</span><span class="p">)</span>
+
+        <span class="k">else</span><span class="p">:</span>
+
+            <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&quot;程序重启&quot;</span><span class="p">)</span>
+
+            <span class="n">cursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s">&quot;UPDATE device SET online = 1 WHERE mac = </span><span class="si">%s</span><span class="s">&quot;</span><span class="p">,</span> <span class="n">MAC</span><span class="p">)</span>
+
+            <span class="n">logging</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="n">cursor</span><span class="o">.</span><span class="n">_last_executed</span><span class="p">)</span>
+
+    <span class="k">else</span><span class="p">:</span>
+
+        <span class="n">greenlets</span><span class="p">[</span><span class="n">MAC</span><span class="p">]</span> <span class="o">=</span> <span class="n">gevent</span><span class="o">.</span><span class="n">getcurrent</span><span class="p">()</span>
+
+        <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&quot;旧的设备: </span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="n">MAC</span><span class="p">)</span>
+
+        <span class="n">cursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s">&quot;UPDATE device SET online = 1 WHERE mac = </span><span class="si">%s</span><span class="s">&quot;</span><span class="p">,</span> <span class="n">MAC</span><span class="p">)</span>
+
+        <span class="n">logging</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="n">cursor</span><span class="o">.</span><span class="n">_last_executed</span><span class="p">)</span>
+
+    <span class="k">while</span> <span class="mi">1</span><span class="p">:</span>
+
+        <span class="n">connection</span><span class="o">.</span><span class="n">ping</span><span class="p">()</span>
+
+        <span class="n">task</span> <span class="o">=</span> <span class="n">redis_client</span><span class="o">.</span><span class="n">rpop</span><span class="p">(</span><span class="n">MAC</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">task</span><span class="p">:</span>
+
+            <span class="n">cursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s">&quot;SELECT online FROM device WHERE mac = </span><span class="si">%s</span><span class="s">&quot;</span><span class="p">,</span> <span class="n">MAC</span><span class="p">)</span>
+
+            <span class="n">logging</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="n">cursor</span><span class="o">.</span><span class="n">_last_executed</span><span class="p">)</span>
+
+            <span class="n">online</span> <span class="o">=</span> <span class="n">cursor</span><span class="o">.</span><span class="n">fetchone</span><span class="p">()[</span><span class="mi">0</span><span class="p">]</span>
+
+            <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="s"> 设备当前状态: </span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">MAC</span><span class="p">,</span> <span class="n">online</span><span class="p">))</span>
+
+            <span class="k">if</span> <span class="n">online</span><span class="p">:</span>
+
+                <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="s"> 尝试接收数据&quot;</span> <span class="o">%</span> <span class="n">MAC</span><span class="p">)</span>
+
+                <span class="k">try</span><span class="p">:</span>
+
+                    <span class="n">data</span> <span class="o">=</span> <span class="n">socket</span><span class="o">.</span><span class="n">recv</span><span class="p">(</span><span class="mi">4096</span><span class="p">)</span>
+
+                <span class="k">except</span> <span class="n">gevent</span><span class="o">.</span><span class="n">socket</span><span class="o">.</span><span class="n">timeout</span><span class="p">:</span>
+
+                    <span class="k">continue</span>
+
+                <span class="k">except</span> <span class="n">gevent</span><span class="o">.</span><span class="n">socket</span><span class="o">.</span><span class="n">error</span><span class="p">:</span>
+
+                    <span class="n">cursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s">&quot;UPDATE device SET online = 0 WHERE mac = </span><span class="si">%s</span><span class="s">&quot;</span><span class="p">,</span> <span class="n">MAC</span><span class="p">)</span>
+
+                    <span class="n">logging</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="n">cursor</span><span class="o">.</span><span class="n">_last_executed</span><span class="p">)</span>
+
+                    <span class="n">logging</span><span class="o">.</span><span class="n">critical</span><span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">exc_info</span><span class="p">()[</span><span class="mi">1</span><span class="p">][</span><span class="mi">1</span><span class="p">])</span>
+
+                    <span class="n">cursor</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+                    <span class="n">connection</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+                    <span class="n">socket</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+                    <span class="k">return</span>
+
+                <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="s"> 发送 </span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">MAC</span><span class="p">,</span> <span class="n">data</span><span class="p">))</span>
+
+                <span class="k">if</span> <span class="n">data</span><span class="p">:</span>
+
+                    <span class="n">handle_report</span><span class="p">(</span><span class="n">MAC</span><span class="p">,</span> <span class="n">socket</span><span class="p">,</span> <span class="n">connection</span><span class="p">,</span> <span class="n">cursor</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span>
+
+                <span class="k">else</span><span class="p">:</span>
+
+                    <span class="n">cursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s">&quot;UPDATE device SET online = 0 WHERE mac = </span><span class="si">%s</span><span class="s">&quot;</span><span class="p">,</span> <span class="n">MAC</span><span class="p">)</span>
+
+                    <span class="n">logging</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="n">cursor</span><span class="o">.</span><span class="n">_last_executed</span><span class="p">)</span>
+
+                    <span class="n">logging</span><span class="o">.</span><span class="n">critical</span><span class="p">(</span><span class="s">&quot;设备返回空值&quot;</span><span class="p">)</span>
+
+                    <span class="n">cursor</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+                    <span class="n">connection</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+                    <span class="n">socket</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+                    <span class="k">return</span>
+
+            <span class="k">else</span><span class="p">:</span>
+
+                <span class="n">logging</span><span class="o">.</span><span class="n">critical</span><span class="p">(</span><span class="s">&quot;设备已经离线&quot;</span><span class="p">)</span>
+
+                <span class="n">cursor</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+                <span class="n">connection</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+                <span class="n">socket</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+                <span class="k">return</span>
+
+        <span class="k">else</span><span class="p">:</span>
+
+            <span class="n">task</span> <span class="o">=</span> <span class="n">ast</span><span class="o">.</span><span class="n">literal_eval</span><span class="p">(</span><span class="n">task</span><span class="p">)</span>
+
+            <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&quot;命令: </span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="nb">str</span><span class="p">(</span><span class="n">task</span><span class="p">))</span>
+
+            <span class="k">if</span> <span class="n">task</span><span class="p">[</span><span class="s">&quot;type&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="o">-</span><span class="mi">1</span><span class="p">:</span>
+
+                <span class="n">delete</span><span class="p">(</span><span class="n">MAC</span><span class="p">,</span> <span class="n">socket</span><span class="p">,</span> <span class="n">connection</span><span class="p">,</span> <span class="n">cursor</span><span class="p">,</span> <span class="n">task</span><span class="p">)</span>
+
+                <span class="k">return</span>
+
+            <span class="k">elif</span> <span class="n">task</span><span class="p">[</span><span class="s">&quot;type&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+
+                <span class="n">turnof</span><span class="p">(</span><span class="n">MAC</span><span class="p">,</span> <span class="n">socket</span><span class="p">,</span> <span class="n">connection</span><span class="p">,</span> <span class="n">cursor</span><span class="p">,</span> <span class="n">task</span><span class="p">)</span>
+
+                <span class="k">continue</span>
+
+            <span class="k">elif</span> <span class="n">task</span><span class="p">[</span><span class="s">&quot;type&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+
+                <span class="n">turnon</span><span class="p">(</span><span class="n">MAC</span><span class="p">,</span> <span class="n">socket</span><span class="p">,</span> <span class="n">connection</span><span class="p">,</span> <span class="n">cursor</span><span class="p">,</span> <span class="n">task</span><span class="p">)</span>
+
+                <span class="k">continue</span>
+
+            <span class="k">elif</span> <span class="n">task</span><span class="p">[</span><span class="s">&quot;type&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
+
+                <span class="n">heartbeat</span><span class="p">(</span><span class="n">MAC</span><span class="p">,</span> <span class="n">socket</span><span class="p">,</span> <span class="n">connection</span><span class="p">,</span> <span class="n">cursor</span><span class="p">,</span> <span class="n">task</span><span class="p">)</span>
+
+                <span class="k">continue</span>
+
+            <span class="k">elif</span> <span class="n">task</span><span class="p">[</span><span class="s">&quot;type&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="mi">4</span><span class="p">:</span>
+
+                <span class="n">read_temperature_humidity</span><span class="p">(</span><span class="n">MAC</span><span class="p">,</span> <span class="n">socket</span><span class="p">,</span> <span class="n">connection</span><span class="p">,</span> <span class="n">cursor</span><span class="p">,</span> <span class="n">task</span><span class="p">)</span>
+
+                <span class="k">continue</span>
+
+            <span class="k">elif</span> <span class="n">task</span><span class="p">[</span><span class="s">&quot;type&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="mi">6</span><span class="p">:</span>
+
+                <span class="n">check_status</span><span class="p">(</span><span class="n">MAC</span><span class="p">,</span> <span class="n">socket</span><span class="p">,</span> <span class="n">connection</span><span class="p">,</span> <span class="n">cursor</span><span class="p">,</span> <span class="n">task</span><span class="p">)</span>
+
+                <span class="k">continue</span>
+
+            <span class="k">elif</span> <span class="n">task</span><span class="p">[</span><span class="s">&quot;type&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="mi">7</span><span class="p">:</span>
+
+                <span class="n">read_remaining_potion</span><span class="p">(</span><span class="n">MAC</span><span class="p">,</span> <span class="n">socket</span><span class="p">,</span> <span class="n">connection</span><span class="p">,</span> <span class="n">cursor</span><span class="p">,</span> <span class="n">task</span><span class="p">)</span>
+
+                <span class="k">continue</span></div>
+
+
+<span class="k">if</span> <span class="n">__name__</span> <span class="o">==</span> <span class="s">&quot;__main__&quot;</span><span class="p">:</span>
+
+    <span class="n">StreamServer</span><span class="p">((</span><span class="s">&quot;0.0.0.0&quot;</span><span class="p">,</span> <span class="mi">9009</span><span class="p">),</span> <span class="n">handle</span><span class="p">,</span> <span class="n">backlog</span><span class="o">=</span><span class="mi">256</span><span class="p">,</span> <span class="n">spawn</span><span class="o">=</span><span class="mi">65536</span><span class="p">)</span><span class="o">.</span><span class="n">serve_forever</span><span class="p">()</span>
+
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper"><div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="../index.html">Documentation overview</a><ul>
+  <li><a href="index.html">Module code</a><ul>
+  </ul></li>
+  </ul></li>
+</ul>
+</div>
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2016, stamaimer.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 1.4.1</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.8</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

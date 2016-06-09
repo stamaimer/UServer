@@ -1,0 +1,4 @@
+gevent==1.1.1
+greenlet==0.4.9
+PyMySQL==0.7.4
+redis==2.10.5

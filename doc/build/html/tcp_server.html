@@ -1,0 +1,480 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>tcp_server module &mdash; UServer 0.0.1 documentation</title>
+    
+    <link rel="stylesheet" href="_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    './',
+        VERSION:     '0.0.1',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/underscore.js"></script>
+    <script type="text/javascript" src="_static/doctools.js"></script>
+    <link rel="top" title="UServer 0.0.1 documentation" href="index.html" />
+    <link rel="next" title="monitor module" href="monitor.html" />
+    <link rel="prev" title="Welcome to UServer’s documentation!" href="index.html" />
+   
+  <link rel="stylesheet" href="_static/custom.css" type="text/css" />
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9" />
+
+  </head>
+  <body role="document">
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <div class="section" id="module-tcp_server">
+<span id="tcp-server-module"></span><h1>tcp_server module<a class="headerlink" href="#module-tcp_server" title="Permalink to this headline">¶</a></h1>
+<p>tcp_server</p>
+<p>这个程序创建一个TCP服务器,监听`9009`端口.设备发起链接请求视为上线,程序针对每个链接新建一个协程,用于转发用户命令,监控设别状态,处理设备上报信息.</p>
+<dl class="function">
+<dt id="tcp_server.check_status">
+<code class="descclassname">tcp_server.</code><code class="descname">check_status</code><span class="sig-paren">(</span><em>MAC</em>, <em>socket</em>, <em>connection</em>, <em>cursor</em>, <em>task={}</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/tcp_server.html#check_status"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#tcp_server.check_status" title="Permalink to this definition">¶</a></dt>
+<dd><p>检查加热器当前状态的命令,每一分钟检测一次,这个命令后台生成,属于监控设备状态的命令之一</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first simple">
+<li><strong>MAC</strong> &#8211; 设备的物理地址(唯一标志)</li>
+<li><strong>socket</strong> &#8211; 设备和程序之间的链接</li>
+<li><strong>connection</strong> &#8211; 当前协程的数据库链接(每个协程使用独立的数据库链接)</li>
+<li><strong>cursor</strong> &#8211; 当前协程的数据库游标(每个协程使用独立的数据库游标)</li>
+<li><strong>task</strong> &#8211; 由于这个命令后台生成,所以`task`为空</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first last">根据响应数据,执行某项操作,无返回值(具体规则参见&lt;&lt;设备控制通信协议&gt;&gt;)</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="tcp_server.delete">
+<code class="descclassname">tcp_server.</code><code class="descname">delete</code><span class="sig-paren">(</span><em>MAC</em>, <em>socket</em>, <em>connection</em>, <em>cursor</em>, <em>task</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/tcp_server.html#delete"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#tcp_server.delete" title="Permalink to this definition">¶</a></dt>
+<dd><p>删除设备命令,这个命令由用户通过移动应用发送,从全局变量`greenlets`以及数据库删除这个设备</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first simple">
+<li><strong>MAC</strong> &#8211; 设备的物理地址(唯一标志)</li>
+<li><strong>socket</strong> &#8211; 设备和程序之间的链接</li>
+<li><strong>connection</strong> &#8211; 当前协程的数据库链接(每个协程使用独立的数据库链接)</li>
+<li><strong>cursor</strong> &#8211; 当前协程的数据库游标(每个协程使用独立的数据库游标)</li>
+<li><strong>task</strong> &#8211; 删除设备命令的具体内容(json类型)</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first last">无返回值</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="tcp_server.get_checksum">
+<code class="descclassname">tcp_server.</code><code class="descname">get_checksum</code><span class="sig-paren">(</span><em>data</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/tcp_server.html#get_checksum"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#tcp_server.get_checksum" title="Permalink to this definition">¶</a></dt>
+<dd><p>检验设备响应数据的校验和</p>
+<p>首先调用`translate`函数获得响应数据的整数列表表示,然后对这个列表的除了最后一个元素之外所有元素求和,求和结果与`0xff`做位与操作,所得结果即为校验和,最后与整数列表的末尾元素比较,一致返回`True`,否则返回`False`</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><strong>data</strong> &#8211; 设备响应数据(二进制串)</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body">如果计算结果与设备上报的校验和一致返回`True`,否则返回`False`</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="data">
+<dt id="tcp_server.greenlets">
+<code class="descclassname">tcp_server.</code><code class="descname">greenlets</code><em class="property"> = {}</em><a class="headerlink" href="#tcp_server.greenlets" title="Permalink to this definition">¶</a></dt>
+<dd><p>list: 全局变量`greenlets`</p>
+<p>存储设备和设备对应的链接,用来分辨是否是新设备</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="tcp_server.handle">
+<code class="descclassname">tcp_server.</code><code class="descname">handle</code><span class="sig-paren">(</span><em>socket</em>, <em>address</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/tcp_server.html#handle"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#tcp_server.handle" title="Permalink to this definition">¶</a></dt>
+<dd><p>每个协程运行的主函数,每当某个设备发起链接,服务器创建一个新的协程运行该函数</p>
+<p>这个函数首先检测是否是有效设备发起的链接,正常设备发起链接,首先需要上报该设备的物理地址,通过这个检测之后,然后使用全局变量`greenlets`以及数据库来确定该设备的具体情况</p>
+<p>接下来是这个函数的主要部分: 一个无限循环,在循环过程中转发用户命令,监控设备状态,处理设备上报信息</p>
+<p>单次循环具体流程描述如下:</p>
+<blockquote>
+<div><p>首先检查`redis`是否含有发向当前设备的命令:</p>
+<blockquote>
+<div>如果有,执行相应命令;
+如果没有,则尝试接收设备的上报信息(具体流程参见`send_command`);
+执行下次循环;</div></blockquote>
+</div></blockquote>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first simple">
+<li><strong>socket</strong> &#8211; 设备和程序之间的链接</li>
+<li><strong>address</strong> &#8211; 设备具体`IP`地址以及端口</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first last">无返回值</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="tcp_server.handle_report">
+<code class="descclassname">tcp_server.</code><code class="descname">handle_report</code><span class="sig-paren">(</span><em>MAC</em>, <em>socket</em>, <em>connection</em>, <em>cursor</em>, <em>data</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/tcp_server.html#handle_report"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#tcp_server.handle_report" title="Permalink to this definition">¶</a></dt>
+<dd><p>处理上报信息</p>
+<p>首先检验上报信息的校验和,如果校验失败,发送`f5aa0802`命令,然后检查命令类型,如果命令类型不符,发送`f5aa0801`,如果上述两个检查通过,发送`f5aa0800`
+然后根据协议处理上报事件:</p>
+<blockquote>
+<div>如果事件类型为`1`,表示读取药量错误(设备接触不良);
+如果事件类型为`2`,表示用户按下设备物理按键,然后根据按键位置的不同相应的更新`power`字段;
+如果事件类型为`3`,表示药水已经用完;
+如果事件类型为`4`,表示药水已经更新,调用读取药量函数,更新数据;</div></blockquote>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first simple">
+<li><strong>MAC</strong> &#8211; 设备的物理地址(唯一标志)</li>
+<li><strong>socket</strong> &#8211; 设备和程序之间的链接</li>
+<li><strong>connection</strong> &#8211; 当前协程的数据库链接(每个协程使用独立的数据库链接)</li>
+<li><strong>cursor</strong> &#8211; 当前协程的数据库游标(每个协程使用独立的数据库游标)</li>
+<li><strong>data</strong> &#8211; 设备上报数据</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first last">根据上报数据执行某项操作, 无返回值</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="tcp_server.heartbeat">
+<code class="descclassname">tcp_server.</code><code class="descname">heartbeat</code><span class="sig-paren">(</span><em>MAC</em>, <em>socket</em>, <em>connection</em>, <em>cursor</em>, <em>task={}</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/tcp_server.html#heartbeat"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#tcp_server.heartbeat" title="Permalink to this definition">¶</a></dt>
+<dd><p>心跳命令,检测设备是否在线,每一分钟检测一次,这个命令后台生成,属于监控设备状态的命令之一</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first simple">
+<li><strong>MAC</strong> &#8211; 设备的物理地址(唯一标志)</li>
+<li><strong>socket</strong> &#8211; 设备和程序之间的链接</li>
+<li><strong>connection</strong> &#8211; 当前协程的数据库链接(每个协程使用独立的数据库链接)</li>
+<li><strong>cursor</strong> &#8211; 当前协程的数据库游标(每个协程使用独立的数据库游标)</li>
+<li><strong>task</strong> &#8211; 由于这个命令后台生成,所以`task`为空</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first last">根据响应数据,执行某项操作,无返回值(具体规则参见&lt;&lt;设备控制通信协议&gt;&gt;)</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="tcp_server.read_remaining_potion">
+<code class="descclassname">tcp_server.</code><code class="descname">read_remaining_potion</code><span class="sig-paren">(</span><em>MAC</em>, <em>socket</em>, <em>connection</em>, <em>cursor</em>, <em>task={}</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/tcp_server.html#read_remaining_potion"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#tcp_server.read_remaining_potion" title="Permalink to this definition">¶</a></dt>
+<dd><p>读取剩余药量的命令,每一分钟读取一次,这个命令后台生成,属于监控设备状态的命令之一</p>
+<p>具体的药量解析规则参见&lt;&lt;设备控制通信协议&gt;&gt;</p>
+<p>其中药量等于`-1`表示并未插入药水</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first simple">
+<li><strong>MAC</strong> &#8211; 设备的物理地址(唯一标志)</li>
+<li><strong>socket</strong> &#8211; 设备和程序之间的链接</li>
+<li><strong>connection</strong> &#8211; 当前协程的数据库链接(每个协程使用独立的数据库链接)</li>
+<li><strong>cursor</strong> &#8211; 当前协程的数据库游标(每个协程使用独立的数据库游标)</li>
+<li><strong>task</strong> &#8211; 由于这个命令后台生成,所以`task`为空</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first last">根据响应数据,执行某项操作,无返回值(具体规则参见&lt;&lt;设备控制通信协议&gt;&gt;)</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="tcp_server.read_temperature_humidity">
+<code class="descclassname">tcp_server.</code><code class="descname">read_temperature_humidity</code><span class="sig-paren">(</span><em>MAC</em>, <em>socket</em>, <em>connection</em>, <em>cursor</em>, <em>task={}</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/tcp_server.html#read_temperature_humidity"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#tcp_server.read_temperature_humidity" title="Permalink to this definition">¶</a></dt>
+<dd><p>读取设备所处环境的温度和湿度的命令,每一分钟读取一次,这个命令后台生成,属于监控设备状态的命令之一</p>
+<p>具体的温度和湿度解析规则参见&lt;&lt;设备控制通信协议&gt;&gt;</p>
+<p>其中温度等于`-273`和湿度等于`0`表示传感器有故障</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first simple">
+<li><strong>MAC</strong> &#8211; 设备的物理地址(唯一标志)</li>
+<li><strong>socket</strong> &#8211; 设备和程序之间的链接</li>
+<li><strong>connection</strong> &#8211; 当前协程的数据库链接(每个协程使用独立的数据库链接)</li>
+<li><strong>cursor</strong> &#8211; 当前协程的数据库游标(每个协程使用独立的数据库游标)</li>
+<li><strong>task</strong> &#8211; 由于这个命令后台生成,所以`task`为空</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first last">根据响应数据,执行某项操作,无返回值(具体规则参见&lt;&lt;设备控制通信协议&gt;&gt;)</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="tcp_server.return_status">
+<code class="descclassname">tcp_server.</code><code class="descname">return_status</code><span class="sig-paren">(</span><em>key</em>, <em>code</em>, <em>msg</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/tcp_server.html#return_status"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#tcp_server.return_status" title="Permalink to this definition">¶</a></dt>
+<dd><p>返回设备执行用户命令的结果</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first simple">
+<li><strong>key</strong> &#8211; 用户命令唯一标志</li>
+<li><strong>code</strong> &#8211; 执行结果的状态,`0` 表示执行成功,`1` 表示执行错误</li>
+<li><strong>msg</strong> &#8211; 执行结果的信息</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first last">None</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="tcp_server.send_command">
+<code class="descclassname">tcp_server.</code><code class="descname">send_command</code><span class="sig-paren">(</span><em>MAC</em>, <em>socket</em>, <em>connection</em>, <em>cursor</em>, <em>command</em>, <em>response_length=0</em>, <em>response_type=0</em>, <em>times=5</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/tcp_server.html#send_command"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#tcp_server.send_command" title="Permalink to this definition">¶</a></dt>
+<dd><p>通过链接发送命令,等待响应,返回有效响应数据</p>
+<p>这个函数默认发送五次命令,如果其中有一次发送成功,同时没有其它错误,则返回有效响应数据(删除响应头,命令类型以及校验和),结束循环,函数返回.</p>
+<p>下面介绍每次循环的流程:</p>
+<blockquote>
+<div><p>首先通过链接尝试发送数据,如果出现异常,关闭连接,清理资源;
+然后通过链接尝试接收数据,如果出现异常,关闭连接,清理资源,如果等待超时,进入下次循环,重新发送命令;
+获得响应数据,如果响应数据为空,关闭连接,清理资源;
+然后检验响应数据类型是否与期望相符,如果相符,则验证校验和,如果校验通过,返回有效响应数据,否则进入下次循环,重新发送命令;
+如果响应数据类型与期望不符,把设备响应信息当作上报信息处理</p>
+<p><em>因为处理上报信息过程中发送的命令无需返回,所以发送之后,函数直接返回,不进行后续操作</em></p>
+</div></blockquote>
+<p>如果五次循环过后,仍未获得有效响应数据,关闭链接,清理资源</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first simple">
+<li><strong>MAC</strong> &#8211; 设备的物理地址(唯一标志)</li>
+<li><strong>socket</strong> &#8211; 设备和程序之间的链接</li>
+<li><strong>connection</strong> &#8211; 当前协程的数据库链接(每个协程使用独立的数据库链接)</li>
+<li><strong>cursor</strong> &#8211; 当前协程的数据库游标(每个协程使用独立的数据库游标)</li>
+<li><strong>command</strong> &#8211; 待发送的命令</li>
+<li><strong>response_length</strong> &#8211; 因为设备返回的响应数据不遵循标准,所以需要根据协议手动获取有效响应数据</li>
+<li><strong>response_type</strong> &#8211; 期望的响应数据的类型,用来检查响应数据是否是上报信息</li>
+<li><strong>times</strong> &#8211; 循环发送命令的次数,默认值`5`</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first last">如果一切正常,返回有效响应数据;如果指定循环次数过后,仍未获得有效响应数据,返回`None`</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="tcp_server.set_checksum">
+<code class="descclassname">tcp_server.</code><code class="descname">set_checksum</code><span class="sig-paren">(</span><em>data</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/tcp_server.html#set_checksum"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#tcp_server.set_checksum" title="Permalink to this definition">¶</a></dt>
+<dd><p>计算即将发送的命令的校验和并附加到命令末尾</p>
+<p>首先调用`translate`函数获得命令的整数列表表示,然后对这个列表的所有元素求和,求和结果与`0xff`做位与操作,所得结果即为校验和,把校验和附加到整数列表的末尾,最后把整数列表转换为二进制串</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><strong>data</strong> &#8211; 即将发送的命令</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body">带有校验和的命令</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="tcp_server.test_connection">
+<code class="descclassname">tcp_server.</code><code class="descname">test_connection</code><span class="sig-paren">(</span><em>MAC</em>, <em>socket</em>, <em>connection</em>, <em>cursor</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/tcp_server.html#test_connection"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#tcp_server.test_connection" title="Permalink to this definition">¶</a></dt>
+<dd><p>设备上电连接至服务器，服务器端立刻发送这个命令，并且打开蜂鸣器一声响，提示用户设备已经连接至服务器</p>
+<p>由于设备问题时常断连,然后重连,现在只在新的设备首次发起链接之时发送这个命令</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first simple">
+<li><strong>MAC</strong> &#8211; 设备的物理地址(唯一标志)</li>
+<li><strong>socket</strong> &#8211; 设备和程序之间的链接</li>
+<li><strong>connection</strong> &#8211; 当前协程的数据库链接(每个协程使用独立的数据库链接)</li>
+<li><strong>cursor</strong> &#8211; 当前协程的数据库游标(每个协程使用独立的数据库游标)</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first last">根据响应数据,执行某项操作,无返回值(具体规则参见&lt;&lt;设备控制通信协议&gt;&gt;)</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="tcp_server.translate">
+<code class="descclassname">tcp_server.</code><code class="descname">translate</code><span class="sig-paren">(</span><em>data</em>, <em>flag='server'</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/tcp_server.html#translate"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#tcp_server.translate" title="Permalink to this definition">¶</a></dt>
+<dd><p>把一个十六进制字符串以两位为整体进行切割,同时把切割结果转换成为十进制整数</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first simple">
+<li><strong>data</strong> &#8211; 十六进制字符串</li>
+<li><strong>flag</strong> &#8211; 由于程序产生字符串,而设备发送二进制串,需要使用标志区分数据来源,当数据来自设备,需要先使用`binascii.hexlify`进行格式转换.取值范围:{&#8220;server&#8221;(默认值), &#8220;client&#8221;}</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first last">返回一个整数列表</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="tcp_server.turnof">
+<code class="descclassname">tcp_server.</code><code class="descname">turnof</code><span class="sig-paren">(</span><em>MAC</em>, <em>socket</em>, <em>connection</em>, <em>cursor</em>, <em>task</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/tcp_server.html#turnof"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#tcp_server.turnof" title="Permalink to this definition">¶</a></dt>
+<dd><p>关闭加热器的命令,这个命令由用户通过移动应用发送</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first simple">
+<li><strong>MAC</strong> &#8211; 设备的物理地址(唯一标志)</li>
+<li><strong>socket</strong> &#8211; 设备和程序之间的链接</li>
+<li><strong>connection</strong> &#8211; 当前协程的数据库链接(每个协程使用独立的数据库链接)</li>
+<li><strong>cursor</strong> &#8211; 当前协程的数据库游标(每个协程使用独立的数据库游标)</li>
+<li><strong>task</strong> &#8211; 关闭加热器命令的具体内容(json类型)</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first last">根据响应数据,执行某项操作,无返回值(具体规则参见&lt;&lt;设备控制通信协议&gt;&gt;)</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="tcp_server.turnon">
+<code class="descclassname">tcp_server.</code><code class="descname">turnon</code><span class="sig-paren">(</span><em>MAC</em>, <em>socket</em>, <em>connection</em>, <em>cursor</em>, <em>task</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/tcp_server.html#turnon"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#tcp_server.turnon" title="Permalink to this definition">¶</a></dt>
+<dd><p>打开加热器的命令,这个命令由用户通过移动应用发送,发送该命令的时候需要指定加热时长</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first simple">
+<li><strong>MAC</strong> &#8211; 设备的物理地址(唯一标志)</li>
+<li><strong>socket</strong> &#8211; 设备和程序之间的链接</li>
+<li><strong>connection</strong> &#8211; 当前协程的数据库链接(每个协程使用独立的数据库链接)</li>
+<li><strong>cursor</strong> &#8211; 当前协程的数据库游标(每个协程使用独立的数据库游标)</li>
+<li><strong>task</strong> &#8211; 打开加热器命令的具体内容(json类型)</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first last">根据响应数据,执行某项操作,无返回值(具体规则参见&lt;&lt;设备控制通信协议&gt;&gt;)</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+</div>
+
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper"><div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="index.html">Documentation overview</a><ul>
+      <li>Previous: <a href="index.html" title="previous chapter">Welcome to UServer&#8217;s documentation!</a></li>
+      <li>Next: <a href="monitor.html" title="next chapter">monitor module</a></li>
+  </ul></li>
+</ul>
+</div>
+  <div role="note" aria-label="source link">
+    <h3>This Page</h3>
+    <ul class="this-page-menu">
+      <li><a href="_sources/tcp_server.txt"
+            rel="nofollow">Show Source</a></li>
+    </ul>
+   </div>
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2016, stamaimer.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 1.4.1</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.8</a>
+      
+      |
+      <a href="_sources/tcp_server.txt"
+          rel="nofollow">Page source</a>
+    </div>
+
+    
+
+    
+  </body>
+</html>

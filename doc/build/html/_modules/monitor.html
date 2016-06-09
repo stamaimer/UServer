@@ -1,0 +1,203 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>monitor &mdash; UServer 0.0.1 documentation</title>
+    
+    <link rel="stylesheet" href="../_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../',
+        VERSION:     '0.0.1',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../_static/jquery.js"></script>
+    <script type="text/javascript" src="../_static/underscore.js"></script>
+    <script type="text/javascript" src="../_static/doctools.js"></script>
+    <link rel="top" title="UServer 0.0.1 documentation" href="../index.html" />
+    <link rel="up" title="Module code" href="index.html" />
+   
+  <link rel="stylesheet" href="../_static/custom.css" type="text/css" />
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9" />
+
+  </head>
+  <body role="document">
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <h1>Source code for monitor</h1><div class="highlight"><pre>
+<span class="c"># -*- coding: utf-8 -*-</span>
+
+<span class="kn">import</span> <span class="nn">sys</span>
+<span class="kn">import</span> <span class="nn">time</span>
+
+<span class="kn">from</span> <span class="nn">datetime</span> <span class="kn">import</span> <span class="n">datetime</span>
+
+<span class="n">sys</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;../&quot;</span><span class="p">)</span>
+
+<span class="kn">from</span> <span class="nn">userver</span> <span class="kn">import</span> <span class="o">*</span>
+
+
+<div class="viewcode-block" id="generate_command"><a class="viewcode-back" href="../monitor.html#monitor.generate_command">[docs]</a><span class="k">def</span> <span class="nf">generate_command</span><span class="p">(</span><span class="n">device</span><span class="p">,</span> <span class="nb">type</span><span class="p">,</span> <span class="n">time</span><span class="o">=</span><span class="mi">0</span><span class="p">):</span>
+
+    <span class="sd">&quot;&quot;&quot;生成监控设备状态的命令以及定时模式下打开加热器的命令</span>
+
+<span class="sd">    命令格式:</span>
+
+<span class="sd">    {&quot;mac&quot;: {&quot;id&quot;: &quot;mac&quot;+current_time, &quot;type&quot;: type, [&quot;time&quot;: time]}}</span>
+
+<span class="sd">    :param device: 设备的物理地址</span>
+<span class="sd">    :param type: 命令的类型</span>
+<span class="sd">    :param time: 这个参数只有打开加热器的命令需要, 指定打开加热器的时间</span>
+<span class="sd">    :return: 无返回值</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">if</span> <span class="nb">type</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+
+        <span class="n">command</span> <span class="o">=</span> <span class="p">{</span><span class="s">&quot;id&quot;</span><span class="p">:</span> <span class="s">&#39;+&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">([</span><span class="n">device</span><span class="p">,</span> <span class="n">datetime</span><span class="o">.</span><span class="n">utcnow</span><span class="p">()</span><span class="o">.</span><span class="n">strftime</span><span class="p">(</span><span class="s">&quot;%Y-%m-</span><span class="si">%d</span><span class="s"> %H:%M:%S&quot;</span><span class="p">)]),</span> <span class="s">&quot;type&quot;</span><span class="p">:</span> <span class="nb">type</span><span class="p">,</span> <span class="s">&quot;time&quot;</span><span class="p">:</span> <span class="n">time</span><span class="p">}</span>
+
+    <span class="k">else</span><span class="p">:</span>
+
+        <span class="n">command</span> <span class="o">=</span> <span class="p">{</span><span class="s">&quot;id&quot;</span><span class="p">:</span> <span class="s">&#39;+&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">([</span><span class="n">device</span><span class="p">,</span> <span class="n">datetime</span><span class="o">.</span><span class="n">utcnow</span><span class="p">()</span><span class="o">.</span><span class="n">strftime</span><span class="p">(</span><span class="s">&quot;%Y-%m-</span><span class="si">%d</span><span class="s"> %H:%M:%S&quot;</span><span class="p">)]),</span> <span class="s">&quot;type&quot;</span><span class="p">:</span> <span class="nb">type</span><span class="p">}</span>
+
+    <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&quot;产生命令: </span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="nb">str</span><span class="p">(</span><span class="n">command</span><span class="p">))</span>
+
+    <span class="n">redis_client</span><span class="o">.</span><span class="n">lpush</span><span class="p">(</span><span class="n">device</span><span class="p">,</span> <span class="n">command</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="monitor"><a class="viewcode-back" href="../monitor.html#monitor.monitor">[docs]</a><span class="k">def</span> <span class="nf">monitor</span><span class="p">():</span>
+
+    <span class="sd">&quot;&quot;&quot;</span>
+
+<span class="sd">    首先查询数据库,获得所有在线设备的物理地址,对每个在线的设备生成监控状态命令</span>
+
+<span class="sd">    然后确定每个在线设备的当前模式,如果是定时模式,那么检测当前时间是否达到定时时间,如果到了,生成打开加热器的命令</span>
+
+<span class="sd">    这个程序每一分钟执行一次</span>
+
+<span class="sd">    :return: 无返回值</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&quot;后台启动&quot;</span><span class="p">)</span>
+
+    <span class="k">while</span> <span class="mi">1</span><span class="p">:</span>
+
+        <span class="n">connection</span> <span class="o">=</span> <span class="n">pymysql</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="n">host</span><span class="o">=</span><span class="s">&quot;120.25.205.115&quot;</span><span class="p">,</span> <span class="n">user</span><span class="o">=</span><span class="s">&quot;root&quot;</span><span class="p">,</span> <span class="n">passwd</span><span class="o">=</span><span class="s">&quot;86564d7071&quot;</span><span class="p">,</span> <span class="n">db</span><span class="o">=</span><span class="s">&quot;hxd2&quot;</span><span class="p">)</span>
+
+        <span class="n">cursor</span> <span class="o">=</span> <span class="n">connection</span><span class="o">.</span><span class="n">cursor</span><span class="p">()</span>
+
+        <span class="n">cursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s">&quot;SELECT mac, mode, start, last, online FROM device where online = 1&quot;</span><span class="p">)</span>
+
+        <span class="n">logging</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="n">cursor</span><span class="o">.</span><span class="n">_last_executed</span><span class="p">)</span>
+
+        <span class="n">devices</span> <span class="o">=</span> <span class="n">cursor</span><span class="o">.</span><span class="n">fetchall</span><span class="p">()</span>
+
+        <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="s"> 台设备在线&quot;</span> <span class="o">%</span> <span class="nb">len</span><span class="p">(</span><span class="n">devices</span><span class="p">))</span>
+
+        <span class="k">for</span> <span class="n">device</span> <span class="ow">in</span> <span class="n">devices</span><span class="p">:</span>
+
+            <span class="n">MAC</span> <span class="o">=</span> <span class="n">device</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+
+            <span class="n">generate_command</span><span class="p">(</span><span class="n">MAC</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+
+            <span class="n">generate_command</span><span class="p">(</span><span class="n">MAC</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span>
+
+            <span class="n">generate_command</span><span class="p">(</span><span class="n">MAC</span><span class="p">,</span> <span class="mi">6</span><span class="p">)</span>
+
+            <span class="n">generate_command</span><span class="p">(</span><span class="n">MAC</span><span class="p">,</span> <span class="mi">7</span><span class="p">)</span>
+
+            <span class="n">mode</span> <span class="o">=</span> <span class="n">device</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+
+            <span class="k">if</span> <span class="n">mode</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+
+                <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&quot;定时模式&quot;</span><span class="p">)</span>
+
+                <span class="n">start_datetime</span> <span class="o">=</span> <span class="n">device</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span>
+
+                <span class="n">start_date</span> <span class="o">=</span> <span class="n">start_datetime</span><span class="o">.</span><span class="n">date</span><span class="p">()</span>
+
+                <span class="n">current_datetime</span> <span class="o">=</span> <span class="n">datetime</span><span class="o">.</span><span class="n">combine</span><span class="p">(</span><span class="n">start_date</span><span class="p">,</span> <span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">()</span><span class="o">.</span><span class="n">time</span><span class="p">())</span>
+
+                <span class="n">last_time</span> <span class="o">=</span> <span class="n">device</span><span class="p">[</span><span class="mi">3</span><span class="p">]</span>
+
+                <span class="n">interval</span> <span class="o">=</span> <span class="p">(</span><span class="n">start_datetime</span> <span class="o">-</span> <span class="n">current_datetime</span><span class="p">)</span><span class="o">.</span><span class="n">total_seconds</span><span class="p">()</span>
+
+                <span class="k">if</span> <span class="mi">0</span> <span class="o">&lt;</span> <span class="n">interval</span> <span class="o">&lt;</span> <span class="mi">60</span><span class="p">:</span>
+
+                    <span class="n">generate_command</span><span class="p">(</span><span class="n">MAC</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="n">last_time</span><span class="p">)</span>
+
+            <span class="k">elif</span> <span class="n">mode</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+
+                <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&quot;普通模式&quot;</span><span class="p">)</span>
+
+        <span class="n">cursor</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+        <span class="n">connection</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+        <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&quot;准备休眠&quot;</span><span class="p">)</span>
+
+        <span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="mi">60</span><span class="p">)</span></div>
+
+
+<span class="k">if</span> <span class="n">__name__</span> <span class="o">==</span> <span class="s">&quot;__main__&quot;</span><span class="p">:</span>
+
+    <span class="n">monitor</span><span class="p">()</span>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper"><div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="../index.html">Documentation overview</a><ul>
+  <li><a href="index.html">Module code</a><ul>
+  </ul></li>
+  </ul></li>
+</ul>
+</div>
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2016, stamaimer.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 1.4.1</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.8</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>
