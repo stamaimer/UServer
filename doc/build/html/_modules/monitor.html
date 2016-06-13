@@ -42,6 +42,8 @@
   <h1>Source code for monitor</h1><div class="highlight"><pre>
 <span class="c"># -*- coding: utf-8 -*-</span>
 
+<span class="kn">from</span> <span class="nn">__future__</span> <span class="kn">import</span> <span class="n">division</span>  <span class="c"># must occur at the beginning of the file</span>
+
 <span class="kn">import</span> <span class="nn">sys</span>
 <span class="kn">import</span> <span class="nn">time</span>
 
@@ -50,6 +52,18 @@
 <span class="n">sys</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;../&quot;</span><span class="p">)</span>
 
 <span class="kn">from</span> <span class="nn">userver</span> <span class="kn">import</span> <span class="o">*</span>
+
+
+<div class="viewcode-block" id="total_seconds"><a class="viewcode-back" href="../monitor.html#monitor.total_seconds">[docs]</a><span class="k">def</span> <span class="nf">total_seconds</span><span class="p">(</span><span class="n">td</span><span class="p">):</span>
+
+    <span class="sd">&quot;&quot;&quot;计算时间间隔秒数,因为timedelta.total_seconds在Python2.7之后才加入标准库中,所以自己实现</span>
+
+<span class="sd">    :param td: timedelta类型的对象</span>
+<span class="sd">    :return: 时间间隔秒数</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">return</span> <span class="p">(</span><span class="n">td</span><span class="o">.</span><span class="n">microseconds</span> <span class="o">+</span> <span class="p">(</span><span class="n">td</span><span class="o">.</span><span class="n">seconds</span> <span class="o">+</span> <span class="n">td</span><span class="o">.</span><span class="n">days</span> <span class="o">*</span> <span class="mi">24</span> <span class="o">*</span> <span class="mi">3600</span><span class="p">)</span> <span class="o">*</span> <span class="mi">10</span><span class="o">**</span><span class="mi">6</span><span class="p">)</span> <span class="o">/</span> <span class="mi">10</span><span class="o">**</span><span class="mi">6</span></div>
 
 
 <div class="viewcode-block" id="generate_command"><a class="viewcode-back" href="../monitor.html#monitor.generate_command">[docs]</a><span class="k">def</span> <span class="nf">generate_command</span><span class="p">(</span><span class="n">device</span><span class="p">,</span> <span class="nb">type</span><span class="p">,</span> <span class="n">time</span><span class="o">=</span><span class="mi">0</span><span class="p">):</span>
@@ -136,7 +150,7 @@
 
                 <span class="n">last_time</span> <span class="o">=</span> <span class="n">device</span><span class="p">[</span><span class="mi">3</span><span class="p">]</span>
 
-                <span class="n">interval</span> <span class="o">=</span> <span class="p">(</span><span class="n">start_datetime</span> <span class="o">-</span> <span class="n">current_datetime</span><span class="p">)</span><span class="o">.</span><span class="n">total_seconds</span><span class="p">()</span>
+                <span class="n">interval</span> <span class="o">=</span> <span class="n">total_seconds</span><span class="p">(</span><span class="n">start_datetime</span> <span class="o">-</span> <span class="n">current_datetime</span><span class="p">)</span>
 
                 <span class="k">if</span> <span class="mi">0</span> <span class="o">&lt;</span> <span class="n">interval</span> <span class="o">&lt;</span> <span class="mi">60</span><span class="p">:</span>
 

@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 
+from __future__ import division  # must occur at the beginning of the file
+
 import sys
 import time
 
@@ -8,6 +10,18 @@ from datetime import datetime
 sys.path.append("../")
 
 from userver import *
+
+
+def total_seconds(td):
+
+    """计算时间间隔秒数,因为timedelta.total_seconds在Python2.7之后才加入标准库中,所以自己实现
+
+    :param td: timedelta类型的对象
+    :return: 时间间隔秒数
+
+    """
+
+    return (td.microseconds + (td.seconds + td.days * 24 * 3600) * 10**6) / 10**6
 
 
 def generate_command(device, type, time=0):
@@ -94,7 +108,7 @@ def monitor():
 
                 last_time = device[3]
 
-                interval = (start_datetime - current_datetime).total_seconds()
+                interval = total_seconds(start_datetime - current_datetime)
 
                 if 0 < interval < 60:
 
