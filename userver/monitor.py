@@ -110,7 +110,9 @@ def monitor():
 
                 interval = total_seconds(start_datetime - current_datetime)
 
-                if 0 < interval < 60:
+                logging.info("时间间隔秒数%d" % interval)
+
+                if -60 < interval < 60:
 
                     generate_command(MAC, 1, last_time)
 
