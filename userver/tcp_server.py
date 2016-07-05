@@ -808,7 +808,7 @@ def handle(socket, address):
     #
     # test_connection(MAC, socket, connection, cursor)  #
 
-    connection = pymysql.connect(host="120.25.205.115", user="root", passwd="86564d7071", db="hxd2")
+    connection = pymysql.connect(host="", user="", passwd="", db="")
 
     connection.autocommit(1)
 

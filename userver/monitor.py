@@ -70,7 +70,7 @@ def monitor():
 
     while 1:
 
-        connection = pymysql.connect(host="120.25.205.115", user="root", passwd="86564d7071", db="hxd2")
+        connection = pymysql.connect(host="", user="", passwd="", db="")
 
         cursor = connection.cursor()
 

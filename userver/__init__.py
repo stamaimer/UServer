@@ -18,7 +18,7 @@ import pymysql
 
 pymysql.install_as_MySQLdb()
 
-redis_client = redis.Redis("120.25.205.115", 6379, password="86564d7071", db=0)
+redis_client = redis.Redis("", 6379, password="", db=0)
 
 logging.basicConfig(format="%(asctime)s - %(funcName)s - %(levelname)s - %(message)s", stream=sys.stdout, level=logging.INFO)
 
