@@ -22,7 +22,7 @@ redis_client = redis.Redis("", 6379, password="", db=0)
 
 logging.basicConfig(format="%(asctime)s - %(funcName)s - %(levelname)s - %(message)s", stream=sys.stdout, level=logging.INFO)
 
-# connection = pymysql.connect(host="120.25.205.115", user="root", passwd="86564d7071", db="hxd2")
+# connection = pymysql.connect(host="", user="", passwd="", db="")
 #
 # cursor = connection.cursor()
 #
